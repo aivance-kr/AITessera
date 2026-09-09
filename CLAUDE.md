@@ -9,6 +9,8 @@ never implemented directly — they are always delegated to trusted libraries.
 
 > **Common rules are automatically inherited from the global [`~/.claude/CLAUDE.md`](~/.claude/CLAUDE.md)** (language, Git workflow, security, code style, testing, API design, load distribution, log pipeline, PHP LSP). This document defines only **AITessera repository-specific** rules (framework-less stack, architecture, CI/CD).
 >
+> **Exception:** mid-task progress messages are written in **English**; only the final result summary is written in **Korean**.
+>
 > Since this is a framework-less project, CI4-specific terms from the global rules map as follows: `esc()` → `htmlspecialchars`/JSON, Query Builder → PDO prepared statements, `model()` → DI injection, `.env` → `vlucas/phpdotenv`.
 
 ## Tech Stack

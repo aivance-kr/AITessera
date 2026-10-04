@@ -15,7 +15,7 @@ jobs:
     # self-hosted Linux(X64) 조직 러너(호스팅 러너 결제 문제로 전환, 이후 org 러너 1개로 통일).
     # Linux 러너는 services: 를 네이티브 지원하므로 MySQL·Redis 는 컨테이너 서비스로 기동한다
     # (기동·헬스체크·정리를 Actions 러너가 대신 처리 — macOS 시절의 docker run 수동 관리 불필요).
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, X64, docker]
 
     env:
       # 이 러너는 다른 저장소의 self-hosted CI 서비스 컨테이너와 겹치지 않는 포트를 쓴다.

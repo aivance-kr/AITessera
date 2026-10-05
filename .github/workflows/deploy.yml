@@ -15,7 +15,7 @@ concurrency:
 jobs:
   deploy:
     name: Deploy to production (SSH)
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, X64, docker]
     environment: production
 
     steps:

@@ -42,7 +42,12 @@ jobs:
           docker run -d --name "$CI_MYSQL_HOST" --network "$CI_NETWORK" \
             -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=aitessera \
             -e MYSQL_USER=aitessera -e MYSQL_PASSWORD=aitessera \
-            mysql:8.0
+            --tmpfs /var/lib/mysql \
+            mysql:8.0 \
+            --innodb-flush-log-at-trx-commit=0 \
+            --innodb-flush-method=nosync \
+            --sync-binlog=0 \
+            --innodb-redo-log-capacity=536870912
           docker run -d --name "$CI_REDIS_HOST" --network "$CI_NETWORK" redis:7
           # 초기화 중 임시 서버 단계의 ping 성공을 넘기려고 실제 인증 쿼리로 대기한다.
           ready=0

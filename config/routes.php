@@ -6,6 +6,7 @@ use App\Controller\AdminUserController;
 use App\Controller\DocsController;
 use App\Controller\HealthController;
 use App\Controller\JwksController;
+use App\Controller\LandingController;
 use App\Controller\LogController;
 use App\Controller\MeController;
 use App\Controller\OperatorController;
@@ -20,6 +21,9 @@ use FastRoute\RouteCollector;
  * 공개/보호 구분은 JwtAuthMiddleware 의 PUBLIC_ROUTES 로 관리한다.
  */
 return static function (RouteCollector $r): void {
+    // 공개 — 소개 페이지
+    $r->addRoute('GET', '/', [LandingController::class, 'index']);
+
     // 공개 — 헬스체크
     $r->addRoute('GET', '/health', [HealthController::class, 'index']);
 

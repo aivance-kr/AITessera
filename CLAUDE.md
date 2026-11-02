@@ -3,51 +3,54 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 AITessera — Secure JWT-based authentication & authorization API for the AIvance service suite.
-**프레임워크 없는 순수 모던 PHP(8.3+)** 기반 REST API 단일 프로젝트. 검증된 표준 라이브러리를
-조합해 구성하며, JWT·암호화 등 보안 핵심은 절대 직접 구현하지 않고 신뢰받는 라이브러리에 위임한다.
+A single REST API project built on **pure, framework-less modern PHP (8.3+)**. It is assembled by
+combining vetted standard libraries, and security-critical pieces such as JWT and encryption are
+never implemented directly — they are always delegated to trusted libraries.
 
-> **공통 규칙은 전역 [`~/.claude/CLAUDE.md`](~/.claude/CLAUDE.md) 에서 자동 상속**된다(언어·Git 워크플로우·보안·코드 스타일·테스트·API 설계·부하 분산·로그 파이프라인·PHP LSP). 이 문서는 **AITessera 저장소 전용**(프레임워크리스 스택·아키텍처·CI/CD) 규칙만 정의한다.
+> **Common rules are automatically inherited from the global [`~/.claude/CLAUDE.md`](~/.claude/CLAUDE.md)** (language, Git workflow, security, code style, testing, API design, load distribution, log pipeline, PHP LSP). This document defines only **AITessera repository-specific** rules (framework-less stack, architecture, CI/CD).
 >
-> 프레임워크리스 프로젝트이므로 전역 규칙의 CI4 표현은 다음으로 매핑한다: `esc()`→`htmlspecialchars`/JSON, Query Builder→PDO prepared, `model()`→DI 주입, `.env`→`vlucas/phpdotenv`.
+> **Exception:** mid-task progress messages are written in **English**; only the final result summary is written in **Korean**.
+>
+> Since this is a framework-less project, CI4-specific terms from the global rules map as follows: `esc()` → `htmlspecialchars`/JSON, Query Builder → PDO prepared statements, `model()` → DI injection, `.env` → `vlucas/phpdotenv`.
 
-## 기술 스택
+## Tech Stack
 
-프레임워크 대신 PSR 표준 기반의 경량 라이브러리를 조합한다.
+Instead of a framework, this combines lightweight, PSR-standard-based libraries.
 
-| 영역 | 채택 | 비고 |
+| Area | Choice | Notes |
 |------|------|------|
-| **언어** | PHP 8.4+ | `readonly`, enum, 완전한 타입 선언 |
-| **의존성 관리** | Composer | PSR-4 오토로딩 |
-| **HTTP 메시지** | PSR-7 (`nyholm/psr7`) | 프레임워크 독립 |
-| **미들웨어 디스패처** | PSR-15 (`relay/relay`) | 인증·CORS·에러 핸들링 파이프라인 |
-| **라우팅** | `nikic/fast-route` | 초경량 라우터 |
-| **DI 컨테이너** | `php-di/php-di` (PSR-11) | 생성자 주입 |
-| **JWT** | `lcobucci/jwt` | 직접 구현 금지 · `alg` 고정 |
-| **DB 접근** | PDO (prepared statement) | raw 문자열 조합 금지 |
-| **마이그레이션** | `robmorgan/phinx` | `phinx.php` 정의 |
-| **환경변수** | `vlucas/phpdotenv` | `.env` 로딩 |
-| **입력 검증** | `respect/validation` | 컨트롤러 진입 시 강제 |
-| **레이트 리밋** | `symfony/rate-limiter` | brute-force 방어 |
-| **캐시·큐** | Redis (`predis/predis`) | 캐시·비동기 큐 공용 |
-| **API 문서** | `zircote/swagger-php`(v5) | OpenAPI 어트리뷰트 → **RapiDoc** UI (`/api/docs`, 좌측 API 목록) |
-| **정적 분석** | PHPStan (level 8) | `src/` 전체 |
-| **코드 스타일** | PHP-CS-Fixer (PSR-12) | 커밋 전 자동 정렬 |
-| **테스트** | PHPUnit | 단위·통합 |
+| **Language** | PHP 8.4+ | `readonly`, enums, full type declarations |
+| **Dependency management** | Composer | PSR-4 autoloading |
+| **HTTP messages** | PSR-7 (`nyholm/psr7`) | framework-independent |
+| **Middleware dispatcher** | PSR-15 (`relay/relay`) | auth, CORS, error-handling pipeline |
+| **Routing** | `nikic/fast-route` | ultra-lightweight router |
+| **DI container** | `php-di/php-di` (PSR-11) | constructor injection |
+| **JWT** | `lcobucci/jwt` | never implement directly · pin the `alg` |
+| **DB access** | PDO (prepared statements) | never assemble raw strings |
+| **Migrations** | `robmorgan/phinx` | defined via `phinx.php` |
+| **Env vars** | `vlucas/phpdotenv` | loads `.env` |
+| **Input validation** | `respect/validation` | enforced at controller entry |
+| **Rate limiting** | `symfony/rate-limiter` | brute-force defense |
+| **Cache/queue** | Redis (`predis/predis`) | shared for cache and async queue |
+| **API docs** | `zircote/swagger-php` (v5) | OpenAPI attributes → **RapiDoc** UI (`/api/docs`, API list on the left) |
+| **Static analysis** | PHPStan (level 8) | across all of `src/` |
+| **Code style** | PHP-CS-Fixer (PSR-12) | auto-formats before commit |
+| **Testing** | PHPUnit | unit and integration |
 
-> 인증 설계 원칙(Access/Refresh 토큰 분리·회전·알고리즘 고정 등)은 전역 [`~/.claude/rules/security.md`](~/.claude/rules/security.md) 참고.
+> For auth design principles (Access/Refresh token separation, rotation, fixed algorithm, etc.), see the global [`~/.claude/rules/security.md`](~/.claude/rules/security.md).
 
-## 로컬 환경 설정
+## Local Environment Setup
 
 ```bash
-cp .env.example .env      # .env 복사 후 아래 필수 키 설정
+cp .env.example .env      # copy .env, then set the required keys below
 composer install
-php bin/console migrate   # 마이그레이션 실행 (phinx 래퍼)
+php bin/console migrate   # run migrations (phinx wrapper)
 ```
 
-`.env` 필수 키:
+Required `.env` keys:
 
 ```env
-# 앱
+# App
 APP_ENV = local
 APP_BASE_URL = http://localhost:8305/
 
@@ -61,258 +64,269 @@ DB_PASS =
 REDIS_HOST = 127.0.0.1
 REDIS_PORT = 6379
 
-# JWT (필수 — 32자 이상 랜덤 문자열, HS256 기준)
+# JWT (required — a random string of 32+ characters, for HS256)
 JWT_SECRET = E39fksd4fsl90Adfk27fjdkAedkdfh
-JWT_ACCESS_TTL  = 900       # 초 단위 (15분)
-JWT_REFRESH_TTL = 1209600   # 초 단위 (14일)
+JWT_ACCESS_TTL  = 900       # in seconds (15 minutes)
+JWT_REFRESH_TTL = 1209600   # in seconds (14 days)
 ```
 
-> 시크릿은 **절대 코드·저장소에 하드코딩 금지**. 운영 환경은 AWS SSM Parameter Store /
-> Secrets Manager 를 사용하고 `.env` 는 커밋하지 않는다.
+> Secrets must **never be hardcoded in code or the repository**. In production, use AWS SSM Parameter
+> Store / Secrets Manager, and never commit `.env`.
 
-## 커맨드
+## Commands
 
 ```bash
-composer serve                 # 개발 서버 — PHP 내장 서버 (php -S 127.0.0.1:8305 -t public, tessera.test)
-composer test                 # PHPUnit 단독 실행
-composer analyse              # PHPStan 단독 실행
-composer cs-fix               # PHP-CS-Fixer 자동 정렬
-composer check                # cs-check + PHPStan + PHPUnit 순차 실행
-php bin/console <command>      # CLI 진입점 (마이그레이션·큐 컨슈머 등)
+composer serve                 # dev server — PHP built-in server (php -S 127.0.0.1:8305 -t public, tessera.test)
+composer test                 # run PHPUnit alone
+composer analyse              # run PHPStan alone
+composer cs-fix               # auto-format with PHP-CS-Fixer
+composer check                # cs-check + PHPStan + PHPUnit in sequence
+php bin/console <command>      # CLI entry point (migrations, queue consumers, etc.)
 ```
 
-## 디렉토리 규칙
+## Directory Conventions
 
-프레임워크가 없으므로 구조를 직접 규정한다. **프론트 컨트롤러(`public/index.php`)** 하나만
-웹에 노출하고 나머지는 `src/` 아래에 둔다.
+Since there is no framework, the structure is defined directly. Only the **front controller
+(`public/index.php`)** is exposed to the web; everything else lives under `src/`.
 
-| 경로 | 용도 |
+| Path | Purpose |
 |------|------|
-| `public/index.php` | 유일한 진입점(front controller) · 웹 서버 DocumentRoot |
-| `src/Controller/` | HTTP 요청 처리 — 얇게 유지 |
-| `src/Service/` | 비즈니스 로직 · 트랜잭션 관리 |
-| `src/Repository/` | PDO 기반 데이터 접근 계층 |
-| `src/Middleware/` | PSR-15 미들웨어 (`JwtAuthMiddleware` 등) |
-| `src/Domain/` | DTO(`readonly`) · Enum · 도메인 모델 |
-| `src/Exception/` | 도메인 예외 |
-| `src/Support/` | 공용 유틸 (JWT·DB 연결·큐·메일·응답 등) |
-| `src/Console/` | 큐 컨슈머 등 CLI 워커 (`ProcessMailQueue`·`ProcessLogQueue`) |
-| `src/OpenApi/Schema/` | OpenAPI 재사용 스키마 컴포넌트(문서 전용 클래스) |
-| `config/` | 컨테이너 정의 · 라우트 정의 · 설정 로딩 |
-| `migrations/` | phinx 마이그레이션 |
-| `bin/console` | CLI 진입점 (`migrate`·`seed:run`·`mail:work`·`log:work`) |
-| `var/` | 런타임 산출물 (로그·캐시) — git 미추적 |
-| `docs/` | 프로젝트 문서 |
-| `legacy-source/` | 레거시소스 참고용. (깃 추가 금지) |
+| `public/index.php` | the sole entry point (front controller) · web server DocumentRoot |
+| `src/Controller/` | HTTP request handling — keep thin |
+| `src/Service/` | business logic · transaction management |
+| `src/Repository/` | PDO-based data access layer |
+| `src/Middleware/` | PSR-15 middleware (`JwtAuthMiddleware`, etc.) |
+| `src/Domain/` | DTOs (`readonly`) · enums · domain models |
+| `src/Exception/` | domain exceptions |
+| `src/Support/` | shared utilities (JWT, DB connection, queue, mail, response, etc.) |
+| `src/Console/` | CLI workers such as queue consumers (`ProcessMailQueue`, `ProcessLogQueue`) |
+| `src/OpenApi/Schema/` | reusable OpenAPI schema components (docs-only classes) |
+| `config/` | container definitions · route definitions · config loading |
+| `migrations/` | phinx migrations |
+| `bin/console` | CLI entry point (`migrate`, `seed:run`, `mail:work`, `log:work`) |
+| `var/` | runtime output (logs, cache) — not tracked by git |
+| `docs/` | project documentation |
+| `legacy-source/` | legacy source kept for reference (do not add to git) |
 
-## 아키텍처 핵심 패턴
+## Core Architecture Patterns
 
-### 요청 처리 흐름
+### Request handling flow
 
 ```
 public/index.php
-  → .env 로딩 → DI 컨테이너 빌드
-  → PSR-15 미들웨어 파이프라인 (Relay)
+  → load .env → build DI container
+  → PSR-15 middleware pipeline (Relay)
       [ErrorHandler → TrailingSlash → Cors → RateLimit → JwtAuth → RouteDispatch]
-  → Controller → Service → Repository(PDO)
-  → PSR-7 Response 반환
+  → Controller → Service → Repository (PDO)
+  → return PSR-7 Response
 ```
 
-> `TrailingSlashMiddleware` 가 끝 슬래시를 정규화한다(`/api/docs/` → `/api/docs`). 공개경로·
-> 라우팅이 정확 매칭이므로, 이 정규화가 없으면 끝 슬래시에서 401/404 가 난다.
+> `TrailingSlashMiddleware` normalizes trailing slashes (`/api/docs/` → `/api/docs`). Since public
+> paths and routing use exact matching, omitting this normalization causes 401/404 on a trailing slash.
 
-### JWT 인증 흐름
+### JWT authentication flow
 
-`JwtAuthMiddleware`(PSR-15)가 `Authorization: Bearer` 토큰을 `lcobucci/jwt` 로 검증한 뒤,
-사용자 ID 를 요청 컨텍스트에 실어 다음 미들웨어로 넘긴다. 컨트롤러는 요청 애트리뷰트에서
-꺼내 쓴다. 별도 전역 상태 없이 **요청 스코프 안에서만** 유효하다.
+`JwtAuthMiddleware` (PSR-15) validates the `Authorization: Bearer` token via `lcobucci/jwt`, then
+carries the user ID in the request context to the next middleware. Controllers pull it out of a
+request attribute. It is valid **only within the request scope**, with no separate global state.
 
 ```php
-// JwtAuthMiddleware → 검증 후 요청 애트리뷰트에 주입
+// JwtAuthMiddleware → inject into a request attribute after validation
 $request = $request->withAttribute('userId', (int) $claims->get('sub'));
 return $handler->handle($request);
 
-// Controller 에서 사용
+// used in a Controller
 $userId = (int) $request->getAttribute('userId');
 ```
 
-> JWT 검증 제약(`SignedWith`·`StrictValidAt`·알고리즘 고정)은 인증 우회 방지의 핵심이다 — 전역 [`~/.claude/rules/security.md`](~/.claude/rules/security.md) 참고.
+> JWT validation constraints (`SignedWith`, `StrictValidAt`, fixed algorithm) are key to preventing
+> auth bypass — see the global [`~/.claude/rules/security.md`](~/.claude/rules/security.md).
 
-### 프레임워크리스 아키텍처 절대 금지
+### Absolute prohibitions for a framework-less architecture
 
-전역 [`~/.claude/rules/code-style.md`](~/.claude/rules/code-style.md) 의 레이어 책임에 더해, 프레임워크가 없으므로 아래를 특히 강제한다.
+In addition to the layer responsibilities in the global [`~/.claude/rules/code-style.md`](~/.claude/rules/code-style.md), the following are especially enforced since there is no framework.
 
-| 금지 | 이유 |
+| Prohibited | Reason |
 |------|------|
-| Controller·Service 에서 SQL 직접 실행 | 데이터 접근은 Repository 로 격리 |
-| `PDO`·`Redis` 를 전역/싱글턴으로 직접 참조 | DI 컨테이너 경유(생성자 주입) |
-| `new Service()` 직접 인스턴스화 | 컨테이너가 주입 — 수동 `new` 금지 |
-| 미들웨어 밖에서 인증 상태 조작 | 인증은 `JwtAuthMiddleware` 한 곳으로 |
-| `public/` 밖 파일을 웹에 노출 | 진입점은 `public/index.php` 하나만 |
+| Running SQL directly in a Controller or Service | data access must be isolated in the Repository |
+| Referencing `PDO`/`Redis` directly as a global/singleton | must go through the DI container (constructor injection) |
+| Instantiating `new Service()` directly | the container injects it — manual `new` is prohibited |
+| Manipulating auth state outside middleware | auth is handled in one place only: `JwtAuthMiddleware` |
+| Exposing files outside `public/` to the web | the only entry point is `public/index.php` |
 
-### OpenAPI 문서 (구성 위치)
+### OpenAPI docs (where they're organized)
 
-전역 [`~/.claude/rules/api-design.md`](~/.claude/rules/api-design.md) 의 OpenAPI 규칙을 따르되, AITessera 는:
-- **요청/응답 스키마**는 `src/OpenApi/Schema/` 의 `#[OA\Schema]` 컴포넌트로 정의하고 `$ref` 로 참조(인라인 중복 금지).
-- 모든 4xx/5xx 응답은 공용 `ErrorResponse` 컴포넌트를 참조.
-- 전역 정의(Info·Server·`bearerAuth` 보안 스킴)는 `src/OpenApiSpec.php` 에 둔다.
-- 스펙 경로: `/api/v1/openapi.json`(swagger-php v5 가 `src/` 스캔 → JSON, 운영은 캐시).
+Follow the OpenAPI rules in the global [`~/.claude/rules/api-design.md`](~/.claude/rules/api-design.md); AITessera specifics:
+- Define **request/response schemas** as `#[OA\Schema]` components under `src/OpenApi/Schema/` and reference them with `$ref` (no inline duplication).
+- Every 4xx/5xx response references the shared `ErrorResponse` component.
+- Global definitions (Info, Server, the `bearerAuth` security scheme) live in `src/OpenApiSpec.php`.
+- Spec path: `/api/v1/openapi.json` (swagger-php v5 scans `src/` → JSON; cached in production).
 
-## 검증 게이트 — 어디서 무엇을 돌리는가
+## Verification Gates — What Runs Where
 
-검증은 로컬에서 끝낸다. `feature/*` → `dev` PR 에는 CI 를 걸지 않고, CI 는 `dev` → `main`
-배포 PR 에서만 돈다.
+Verification is completed locally. CI is not run on `feature/*` → `dev` PRs; it runs only on
+`dev` → `main` deploy PRs.
 
 ```
-feature/*  ──[로컬 검증: pre-push 훅]──▶  dev  ──[PR + CI]──▶  main
+feature/*  ──[local verification: pre-push hook]──▶  dev  ──[PR + CI]──▶  main
                     ↑                        ↑
-              여기가 실질적 게이트        여기서만 CI 가 돈다
+              the real gate is here      CI only runs here
 ```
 
-| 시점 | 무엇을 | 누가 |
+| When | What | Who |
 |------|--------|------|
-| 개발 중 | `composer analyse` + `composer test` 수시 실행 | 사람 / Claude |
-| `dev` 푸시 전 | `composer check`(cs-check + PHPStan + PHPUnit) 필수 — 실패하면 푸시하지 않는다 | pre-push 훅 |
-| `feature/*` → `dev` PR | CI 없음. 코드 리뷰만 | — |
-| `dev` → `main` PR | GitHub Actions 전체(cs-check + PHPStan + migrate + PHPUnit) | CI |
+| During development | run `composer analyse` + `composer test` as needed | person / Claude |
+| Before pushing to `dev` | `composer check` (cs-check + PHPStan + PHPUnit) is required — do not push if it fails | pre-push hook |
+| `feature/*` → `dev` PR | No CI. Code review only | — |
+| `dev` → `main` PR | Full GitHub Actions (cs-check + PHPStan + migrate + PHPUnit) | CI |
 
-`feature → dev` 에 CI 가 없다는 건 `dev` 브랜치가 검증받지 않은 코드를 받을 수 있다는 뜻이다.
-그 상태로 여러 기능이 쌓인 뒤 배포 PR 에서 처음 CI 가 돌면 어느 커밋이 깨뜨렸는지 찾는 비용이
-커지고 배포가 막힌다. **로컬 검증이 유일한 방어선이므로 생략 = 규칙 위반이다.** Claude 가 작업할
-때도 동일하다 — `dev` 로 올리는 PR 을 만들기 전에 `composer check` 를 실제로 실행하고 출력을
-확인한 다음 진행한다. "통과할 것 같다"로 넘어가지 않는다.
+Having no CI on `feature → dev` means the `dev` branch can receive unverified code.
+If several features pile up in that state and CI runs for the first time on the deploy PR, it
+becomes expensive to find which commit broke things, and deployment gets blocked. **Local
+verification is the only line of defense, so skipping it is a rule violation.** The same applies
+when Claude does the work — actually run `composer check` and check the output before creating a
+PR targeting `dev`. Don't move on assuming "it'll probably pass."
 
-### Git Hooks 로 강제
+### Enforced via Git Hooks
 
-습관에 맡기지 않고 커밋된 훅으로 강제한다. 클론 직후 1회 활성화(`composer install` 시
-`post-install-cmd` 가 자동 실행하므로 보통 수동 설정 불필요):
+Rather than relying on habit, this is enforced via committed hooks. Activate once right after
+cloning (usually no manual setup is needed, since `composer install`'s `post-install-cmd` runs it
+automatically):
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-| 훅 | 동작 |
+| Hook | Behavior |
 |----|------|
-| `pre-commit` | 스테이징된 `*.php` 를 PHP-CS-Fixer 로 자동 정렬 후 재-스테이징. 커밋을 막지는 않는다 |
-| `pre-push` | 푸시 대상이 `dev` 일 때만 `composer check` 실행, 실패 시 푸시 중단 |
-| `pre-push` | `main` 직접 푸시는 무조건 차단 — 배포는 `dev` → `main` PR(merge commit)로만 |
+| `pre-commit` | Auto-formats staged `*.php` with PHP-CS-Fixer and re-stages it. Does not block the commit |
+| `pre-push` | Runs `composer check` only when the push target is `dev`; aborts the push on failure |
+| `pre-push` | Unconditionally blocks direct pushes to `main` — deployment only via a `dev` → `main` PR (merge commit) |
 
-- `feature/*` 푸시는 검증하지 않는다 — 작업 중 빠른 반복을 막지 않기 위해서다.
-- 문서 전용 변경(`*.md`, `docs/**`, `.claude/rules/**` 만 바뀐 푸시)은 `pre-push` 가 비교 대상
-  코드가 없다고 판단해 `composer check` 를 자동으로 건너뛴다. 코드가 한 줄이라도 섞이면 즉시
-  전체 검증으로 돌아간다.
-- 긴급 우회: `SKIP_HOOKS=1 git push ...` (또는 `git commit ...`)
-- `git add -p` 로 부분 스테이징한 상태에서는 `pre-commit` 이 스테이징하지 않은 변경까지 커밋에
-  넣을 수 있다 — 그때는 `SKIP_HOOKS=1` 을 쓴다.
-- PHP·Composer 가 없는 환경에서는 두 훅 모두 검증을 자동으로 건너뛰고 CI 가 최종 검증한다(단,
-  `pre-push` 의 `main` 직접 푸시 차단은 Composer 유무와 무관하게 항상 적용된다).
+- Pushes to `feature/*` are not verified — to avoid slowing down fast iteration during development.
+- Docs-only changes (pushes that only touch `*.md`, `docs/**`, `.claude/rules/**`) are automatically
+  skipped by `pre-push` since there's no code to compare against, even when targeting `dev`. As soon
+  as even a single line of code is mixed in, full verification kicks back in immediately.
+- Emergency bypass: `SKIP_HOOKS=1 git push ...` (or `git commit ...`)
+- With partial staging via `git add -p`, `pre-commit` may pull unstaged changes into the commit too —
+  use `SKIP_HOOKS=1` in that case.
+- In an environment without PHP/Composer, both hooks automatically skip verification and CI performs
+  the final check (however, `pre-push`'s block on direct pushes to `main` always applies regardless
+  of whether Composer is present).
 
 ## CI (GitHub Actions)
 
-`dev` → `main` **배포 PR** 에서만 자동 검증된다(`feature/*` → `dev` PR 에는 걸리지 않는다).
-정의: `.github/workflows/ci.yml`.
+Automatic verification runs only on `dev` → `main` **deploy PRs** (not on `feature/*` → `dev` PRs).
+Defined in: `.github/workflows/ci.yml`.
 
 ```yaml
 on:
   pull_request:
-    branches: [main]     # dev 로 가는 PR 에서는 돌지 않는다
+    branches: [main]     # does not run on PRs targeting dev
 ```
 
-`branches` 를 비워두면 모든 PR 에서 돌아 위 정책이 무의미해진다. `dev` → `main` 배포 PR 은
-merge commit 으로 머지하므로(전역 규칙), CI 가 통과한 커밋 조합이 그대로 `main` 에 올라간다.
+Leaving `branches` empty would run this on every PR, defeating the policy above. Since `dev` → `main`
+deploy PRs are merged with a merge commit (global rule), the exact commit combination that passed CI
+lands on `main` as-is.
 
-- **동시성**: 같은 ref 새 푸시 시 진행 중 실행 취소 (`concurrency.cancel-in-progress`)
+- **Concurrency**: in-progress runs are canceled when a new push lands on the same ref (`concurrency.cancel-in-progress`)
 
-### self-hosted 러너에서 돈다
+### Runs on a self-hosted runner
 
-GitHub 호스팅 러너 대신 **조직(`aivance-kr`) self-hosted 러너 1개**로 돈다(호스팅 러너
-결제 문제가 계기). CI(`backend` 잡)·CD(`deploy` 잡) 모두 동일 러너를 쓴다 —
-`runs-on: [self-hosted, Linux, X64]`.
+Instead of a GitHub-hosted runner, this runs on **a single organization (`aivance-kr`) self-hosted
+runner** (triggered by a hosted-runner billing issue). Both CI (the `backend` job) and CD (the
+`deploy` job) use the same runner — `runs-on: [self-hosted, Linux, X64]`.
 
-- **MySQL/Redis**: Linux self-hosted 러너는 `services:` 도커 컨테이너를 네이티브 지원한다.
-  `backend` 잡은 `services:` 블록으로 MySQL·Redis 를 선언 — 기동·헬스체크·잡 종료 후 정리를
-  Actions 러너가 대신 처리하므로 별도 `docker run`/`docker rm` 스텝이 필요 없다.
-- **포트**: 이 러너는 다른 저장소의 self-hosted CI 서비스 컨테이너와 겹치지 않는 호스트
-  포트를 쓴다 — MySQL `23306`, Redis `26379`(`CI_MYSQL_PORT`/`CI_REDIS_PORT` 로 오버라이드).
-  새 저장소를 이 러너에 추가할 때마다 포트가 겹치지 않는지 확인할 것.
-- **호스팅 러너로 되돌리려면**: `runs-on` 을 `ubuntu-latest` 로 바꾸면 된다 —
-  `services:` 블록은 GitHub 호스팅 Linux 러너에서도 그대로 동작한다.
-- **러너 등록은 Claude 가 대신 하지 않는다** — 시스템 서비스 설치 등 시스템 설정 변경이라
-  사람이 직접 GitHub 조직 `Settings → Actions → Runners → New runner` 페이지에서 안내하는
-  명령을 실행해 등록한다.
+- **MySQL/Redis**: Linux self-hosted runners natively support `services:` Docker containers.
+  The `backend` job declares MySQL and Redis via a `services:` block — the Actions runner handles
+  startup, health checks, and cleanup after the job ends, so no separate `docker run`/`docker rm`
+  steps are needed.
+- **Ports**: this runner uses host ports that don't overlap with other repositories' self-hosted CI
+  service containers — MySQL `23306`, Redis `26379` (overridable via `CI_MYSQL_PORT`/`CI_REDIS_PORT`).
+  When adding a new repository to this runner, always check that ports don't collide.
+- **Reverting to a hosted runner**: change `runs-on` back to `ubuntu-latest` — the `services:` block
+  works the same way on GitHub-hosted Linux runners.
+- **Claude does not register runners on your behalf** — since this is a system-level configuration
+  change (installing a system service, etc.), a person must run the commands shown on the GitHub
+  organization's `Settings → Actions → Runners → New runner` page directly.
 
-### `backend` 잡 — PHP · PHP-CS-Fixer · PHPStan · PHPUnit
+### `backend` job — PHP · PHP-CS-Fixer · PHPStan · PHPUnit
 
-MySQL·Redis 를 `services:` 컨테이너로 기동한 상태로 다음 순서로 검증한다.
+With MySQL and Redis started as `services:` containers, verification runs in this order:
 
-1. setup-php `8.4` (확장: `mbstring intl pdo_mysql redis curl dom xml tokenizer`, 커버리지 `pcov`)
-2. Composer 캐시 → `composer install`
-3. `.env.example` → `.env` 복사 후 CI용 DB·Redis·`JWT_SECRET` 주입
-4. `var/` 하위 디렉토리 생성 (git 미추적, 런타임 경로 보장)
+1. setup-php `8.4` (extensions: `mbstring intl pdo_mysql redis curl dom xml tokenizer`, coverage via `pcov`)
+2. Composer cache → `composer install`
+3. Copy `.env.example` → `.env`, then inject the CI DB, Redis, and `JWT_SECRET`
+4. Create subdirectories under `var/` (not tracked by git, to guarantee the runtime path)
 5. `composer cs-check` (PHP-CS-Fixer dry-run)
 6. `composer analyse` (PHPStan level 8)
-7. `php bin/console migrate` 로 테스트 스키마 구성
-8. `composer test` (PHPUnit 단위·DB 통합)
+7. Build the test schema via `php bin/console migrate`
+8. `composer test` (PHPUnit unit and DB integration)
 
-> 새 PHP 코드는 PHPStan level 8 통과 + 관련 PHPUnit 테스트가 그린이어야 CI를 통과한다. 새 기능에는 `tests/` 테스트를 함께 작성한다.
+> New PHP code must pass PHPStan level 8 and have green related PHPUnit tests to pass CI. Write `tests/` tests alongside every new feature.
 
-## CD (배포)
+## CD (Deployment)
 
-`main` push(= `dev → main` PR 머지) 시 프로덕션 서버로 **SSH 자동 배포**된다. 정의: `.github/workflows/deploy.yml`.
+A push to `main` (i.e., a `dev → main` PR merge) triggers **automatic SSH deployment** to the
+production server. Defined in: `.github/workflows/deploy.yml`.
 
-- **트리거**: `main` push + `workflow_dispatch`(수동·롤백)
-- **동시성**: `deploy-production` 그룹 — 배포 동시 실행 1개, `cancel-in-progress: false`
-- **잡 러너**: CI 와 동일한 조직 self-hosted 러너(`runs-on: [self-hosted, Linux, X64]`)에서 돈다
-- **대상**: Ubuntu + mod_php(또는 PHP-FPM) 아파치 단일 서버 (appleboy/ssh-action 으로 SSH 배포 — 배포 대상 서버는 이 잡 러너와 별개)
+- **Trigger**: push to `main` + `workflow_dispatch` (manual / rollback)
+- **Concurrency**: `deploy-production` group — only 1 concurrent deployment, `cancel-in-progress: false`
+- **Job runner**: runs on the same organization self-hosted runner as CI (`runs-on: [self-hosted, Linux, X64]`)
+- **Target**: a single Ubuntu + mod_php (or PHP-FPM) Apache server (deployed via SSH using appleboy/ssh-action — the deploy target server is separate from this job runner)
 
-### 배포 절차 (서버 SSH 실행)
+### Deployment procedure (executed via SSH on the server)
 
-1. `git reset --hard origin/main` — 최신 main 반영
-2. `var/` 디렉토리 생성 — **반드시 composer/migrate 이전** (런타임 로그·캐시 경로 보장)
+1. `git reset --hard origin/main` — bring in the latest main
+2. Create the `var/` directory — **must happen before composer/migrate** (to guarantee runtime log/cache paths)
 3. `composer install --no-dev --optimize-autoloader`
-4. `php bin/console migrate` — 출력을 grep 검사해 예외 감지 시 `exit 1` 로 배포 중단
-5. 캐시 초기화 (OPcache / Redis 애플리케이션 캐시)
-6. `sudo -n systemctl reload apache2`(또는 `php-fpm`) — OPcache 갱신(무중단)
-7. **Slack 알림** — SSH 배포 스텝(1~6) 종료 후 GitHub Actions 러너에서 성공(`if: success()`)·
-   실패(`if: failure()`) 각각 별도 스텝으로 Incoming Webhook(`SLACK_WEBHOOK_URL`)에 결과 전송
+4. `php bin/console migrate` — grep the output for exceptions and `exit 1` to abort the deploy if found
+5. Clear caches (OPcache / Redis application cache)
+6. `sudo -n systemctl reload apache2` (or `php-fpm`) — refresh OPcache (zero downtime)
+7. **Slack notification** — after the SSH deploy steps (1-6) finish, the GitHub Actions runner sends
+   the result to an Incoming Webhook (`SLACK_WEBHOOK_URL`) in separate success (`if: success()`) and
+   failure (`if: failure()`) steps
 
-> **마이그레이션 함정**: DB 연결 실패·마이그레이션 예외가 나도 CLI 종료코드가 0 일 수 있다.
-> `set -e` 로 못 잡을 수 있으니 출력을 캡처해 예외 패턴(`[...Exception]`·`Unable to connect`·`Access denied`)을 직접 검사하고 실패 시 배포를 중단한다.
+> **Migration pitfall**: a DB connection failure or migration exception can still leave the CLI exit
+> code at 0. `set -e` may not catch this, so capture the output, check it directly for exception
+> patterns (`[...Exception]`, `Unable to connect`, `Access denied`), and abort the deploy on failure.
 
-> **var/ chmod 함정**: 런타임에 아파치(`www-data`)가 만든 `var/cache`·`var/logs` 파일은
-> 배포 계정 소유가 아니라 `chmod -R 775 var` 가 `Operation not permitted` 로 실패한다.
-> 이 `chmod` 는 best-effort(`2>/dev/null || echo …`)로 처리하고, 근본 해결은 아래 서버 준비의 setgid 구성이다.
+> **var/ chmod pitfall**: `var/cache`/`var/logs` files created at runtime by Apache (`www-data`) are
+> not owned by the deploy account, so `chmod -R 775 var` fails with `Operation not permitted`.
+> Treat this `chmod` as best-effort (`2>/dev/null || echo …`); the root fix is the setgid setup in
+> server prep below.
 
-### 필요한 GitHub Secrets (`production` 환경)
+### Required GitHub Secrets (`production` environment)
 
 `DEPLOY_HOST` · `DEPLOY_USER` · `DEPLOY_SSH_KEY` · `DEPLOY_PORT` · `DEPLOY_PATH`
 
-- `SLACK_WEBHOOK_URL` (선택) — 설정 시 배포 성공/실패를 Slack Incoming Webhook 으로 알림.
-  미설정 시 알림 스텝은 자동 스킵되며 배포 자체에는 영향 없다.
+- `SLACK_WEBHOOK_URL` (optional) — when set, notifies deploy success/failure via a Slack Incoming
+  Webhook. If unset, the notification step is automatically skipped and the deployment itself is
+  unaffected.
 
-### 서버 사전 준비 (한 번만)
+### One-time server preparation
 
-- **GitHub 읽기전용 deploy key** — 서버 저장소 리모트를 SSH(`git@github.com:...`)로 설정 (HTTPS면 `could not read Username` 실패)
-- **프로덕션 `.env`** 에 실제 DB·Redis·JWT 접속정보 (없으면 migrate 시 `Access denied`)
-- **비밀번호 없는 sudo**: `/etc/sudoers.d/aitessera-deploy` 에 `<DEPLOY_USER> ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload apache2` (없으면 `sudo: a password is required` 로 실패)
-- 아파치 `DocumentRoot` 는 `public/`, `var/` 는 아파치 유저(`www-data`) 쓰기 가능
-- **var/ setgid 구성(권장)** — 소유권 충돌로 인한 chmod 실패를 근본 제거:
+- **GitHub read-only deploy key** — set the server repo remote to SSH (`git@github.com:...`) (HTTPS fails with `could not read Username`)
+- **Production `.env`** with real DB, Redis, and JWT credentials (missing this causes `Access denied` during migrate)
+- **Passwordless sudo**: in `/etc/sudoers.d/aitessera-deploy`, `<DEPLOY_USER> ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload apache2` (missing this fails with `sudo: a password is required`)
+- Apache's `DocumentRoot` is `public/`; `var/` must be writable by the Apache user (`www-data`)
+- **var/ setgid setup (recommended)** — eliminates chmod failures caused by ownership conflicts at the root:
   ```bash
   sudo chown -R <DEPLOY_USER>:www-data <DEPLOY_PATH>/var
-  sudo chmod -R 2775 <DEPLOY_PATH>/var   # setgid: 새 파일이 www-data 그룹 상속
+  sudo chmod -R 2775 <DEPLOY_PATH>/var   # setgid: new files inherit the www-data group
   ```
 
-### 배포 후 — 기본 관리자 계정 (최초 1회)
+### After deployment — default admin account (one-time)
 
-배포에는 마이그레이션만 포함되고 **시더는 자동 실행되지 않는다.** 관리자 계정이 없으면 서버에서 한 번 실행한다(재실행 안전).
+Deployment includes only migrations; **seeders are not run automatically.** If there is no admin account, run this once on the server (safe to re-run).
 
 ```bash
 cd <DEPLOY_PATH> && php bin/console seed:admin
 ```
 
-## 클라우드·인프라 (참고)
+## Cloud/Infrastructure (Reference)
 
-- **AWS 기본 스택**: ECS(Fargate) + RDS + ElastiCache(Redis) + SQS
-- **시크릿 관리**: `.env` 커밋 금지 — AWS SSM Parameter Store / Secrets Manager 사용
-- **로그**: 구조화 로그(JSON) 지향
-- **헬스체크**: `GET /health` 엔드포인트 (DB·캐시 연결 상태 포함) 제공 권장
+- **Default AWS stack**: ECS (Fargate) + RDS + ElastiCache (Redis) + SQS
+- **Secrets management**: never commit `.env` — use AWS SSM Parameter Store / Secrets Manager
+- **Logs**: aim for structured (JSON) logging
+- **Health check**: recommended to provide a `GET /health` endpoint (including DB/cache connection status)

@@ -115,6 +115,16 @@ final class PipelineTest extends TestCase
         self::assertArrayHasKey('bearerAuth', $spec['components']['securitySchemes']);
     }
 
+    public function testLandingPageIsPublicAtRoot(): void
+    {
+        $response = $this->handle('GET', '/');
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertStringContainsString('text/html', $response->getHeaderLine('Content-Type'));
+        self::assertStringContainsString('AITessera', (string) $response->getBody());
+        self::assertStringNotContainsString('{{version}}', (string) $response->getBody());
+    }
+
     public function testApiDocsPageIsServed(): void
     {
         $response = $this->handle('GET', '/api/docs');

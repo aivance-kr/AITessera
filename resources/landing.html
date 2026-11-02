@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AITessera — Your key to trusted access</title>
+  <meta name="description" content="AIvance 제품군을 위한 JWT 기반 인증·인가 API, AITessera 소개">
+  <style>
+    :root {
+      --bg: #f7f8fb; --surface: #ffffff; --text: #151a28; --muted: #4b5568;
+      --line: #e1e5ee; --accent: #3b4cca; --accent-soft: #eceefc; --code-bg: #0f1424; --code-text: #d7def5;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0c1020; --surface: #141a30; --text: #e8ebf5; --muted: #9aa3bd;
+        --line: #252d4a; --accent: #8c9bff; --accent-soft: #1b2347; --code-bg: #080b17; --code-text: #d7def5;
+      }
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text); line-height: 1.65;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+    header.top {
+      position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent);
+      backdrop-filter: blur(8px); border-bottom: 1px solid var(--line);
+    }
+    header.top .wrap { display: flex; align-items: center; justify-content: space-between; height: 56px; gap: 16px; }
+    .brand { font-weight: 700; letter-spacing: -0.01em; color: var(--text); }
+    .brand span { color: var(--accent); }
+    nav { display: flex; gap: 18px; font-size: 14px; overflow-x: auto; }
+    nav a { color: var(--muted); white-space: nowrap; }
+    nav a:hover { color: var(--text); text-decoration: none; }
+    .hero { padding: 72px 0 48px; }
+    .eyebrow { font-size: 13px; font-weight: 600; color: var(--accent); letter-spacing: 0.06em; text-transform: uppercase; }
+    h1 { font-size: clamp(34px, 6vw, 56px); line-height: 1.12; letter-spacing: -0.03em; margin: 12px 0 16px; }
+    .lead { font-size: 18px; color: var(--muted); max-width: 680px; margin: 0 0 28px; }
+    .btns { display: flex; flex-wrap: wrap; gap: 10px; }
+    .btn {
+      display: inline-block; padding: 10px 18px; border-radius: 8px; font-weight: 600; font-size: 15px;
+      border: 1px solid var(--line); background: var(--surface); color: var(--text);
+    }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn:hover { text-decoration: none; filter: brightness(1.06); }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 40px; }
+    .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+    .stat b { display: block; font-size: 22px; letter-spacing: -0.02em; }
+    .stat span { font-size: 13px; color: var(--muted); }
+    section { padding: 48px 0; border-top: 1px solid var(--line); }
+    h2 { font-size: 28px; letter-spacing: -0.02em; margin: 0 0 8px; }
+    .sub { color: var(--muted); margin: 0 0 28px; max-width: 720px; }
+    h3 { font-size: 17px; margin: 0 0 6px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+    .card p { margin: 0; color: var(--muted); font-size: 15px; }
+    .tag { display: inline-block; font-size: 12px; font-weight: 600; background: var(--accent-soft); color: var(--accent); padding: 2px 8px; border-radius: 99px; margin-bottom: 10px; }
+    table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; font-size: 15px; }
+    th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { background: var(--accent-soft); font-size: 13px; color: var(--muted); font-weight: 600; }
+    tr:last-child td { border-bottom: 0; }
+    .tbl { overflow-x: auto; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em; }
+    td code, p code, li code { background: var(--accent-soft); padding: 1px 6px; border-radius: 5px; }
+    pre {
+      background: var(--code-bg); color: var(--code-text); border-radius: 12px; padding: 18px 20px;
+      overflow-x: auto; font-size: 13.5px; line-height: 1.6; margin: 0;
+    }
+    .m { display: inline-block; min-width: 56px; font-weight: 700; font-size: 12px; font-family: ui-monospace, Menlo, monospace; }
+    .m.get { color: #146c44; } .m.post { color: #8a5410; } .m.patch { color: #6234b8; } .m.del { color: #b02a3a; }
+    @media (prefers-color-scheme: dark) { .m.get { color: #4cd48f; } .m.post { color: #f0b04a; } .m.patch { color: #b79aff; } .m.del { color: #ff7b8a; } }
+    .pipe { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 18px; }
+    .pipe span { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; font-size: 14px; font-weight: 600; }
+    .pipe i { color: var(--muted); font-style: normal; }
+    ul.list { margin: 0; padding-left: 20px; color: var(--muted); }
+    ul.list li { margin: 4px 0; }
+    ul.list b { color: var(--text); }
+    footer { border-top: 1px solid var(--line); padding: 28px 0 40px; color: var(--muted); font-size: 14px; }
+    footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; }
+    @media (max-width: 560px) { .hero { padding-top: 44px; } nav { display: none; } }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="/">AI<span>Tessera</span></a>
+      <nav>
+        <a href="#overview">개요</a>
+        <a href="#features">구현 내용</a>
+        <a href="#architecture">아키텍처</a>
+        <a href="#stack">적용 기술</a>
+        <a href="#api">API</a>
+        <a href="#ops">운영</a>
+        <a href="/api/docs">Swagger 문서</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="wrap">
+      <div class="hero">
+        <div class="eyebrow">AIvance Auth Service · v{{version}}</div>
+        <h1>Your key to trusted access.</h1>
+        <p class="lead">
+          AITessera 는 AIvance 제품군을 위한 <b>JWT 기반 인증·인가 API</b>입니다.
+          고대 로마의 신원 확인 증표 <i>tessera</i> 에서 이름을 따, 하나의 계정으로 여러 서비스에
+          안전하게 접근하도록 돕습니다.
+        </p>
+        <div class="btns">
+          <a class="btn primary" href="/api/docs">API 문서 (Swagger) 열기</a>
+          <a class="btn" href="/api/v1/openapi.json">OpenAPI 스펙 (JSON)</a>
+          <a class="btn" href="/.well-known/jwks.json">JWKS 공개키</a>
+          <a class="btn" href="/health">헬스체크</a>
+        </div>
+        <div class="stats">
+          <div class="stat"><b>PHP 8.4</b><span>프레임워크 없는 모던 PHP</span></div>
+          <div class="stat"><b>PSR 표준</b><span>PSR-7 · 11 · 15</span></div>
+          <div class="stat"><b>HS256 / RS256</b><span>알고리즘 고정 · JWKS 제공</span></div>
+          <div class="stat"><b>3 roles</b><span>운영자 · 대행사 · 일반회원</span></div>
+          <div class="stat"><b>5 services</b><span>다중 소속 계정 지원</span></div>
+        </div>
+      </div>
+    </div>
+
+    <section id="overview">
+      <div class="wrap">
+        <h2>개요</h2>
+        <p class="sub">보호된 API 는 <code>Authorization: Bearer</code> 토큰이 필요합니다. 이 페이지와 아래 엔드포인트는 인증 없이 열람할 수 있습니다.</p>
+        <div class="grid">
+          <div class="card"><span class="tag">목적</span><h3>중앙 집중 인증·인가</h3><p>가입·이메일 인증·로그인·토큰 갱신·로그아웃·회원 관리를 하나의 API 로 제공해 각 서비스가 인증을 직접 구현하지 않도록 합니다.</p></div>
+          <div class="card"><span class="tag">원칙</span><h3>검증된 라이브러리 위임</h3><p>JWT·암호화 같은 보안 핵심은 직접 만들지 않고 <code>lcobucci/jwt</code> 등 신뢰받는 라이브러리에 맡깁니다.</p></div>
+          <div class="card"><span class="tag">대상 서비스</span><h3>AIvance 제품군</h3><p>aicura · aicopia · aicreo · aivance · ailicet. 소속(서비스)별로 계정을 구분하며 이메일 중복은 소속 단위로 판단합니다.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="features">
+      <div class="wrap">
+        <h2>구현 내용</h2>
+        <p class="sub">현재 API 에 구현된 기능과 보안 설계입니다.</p>
+        <div class="grid">
+          <div class="card">
+            <span class="tag">인증</span><h3>Access / Refresh 토큰</h3>
+            <ul class="list">
+              <li>Access 토큰 <b>15분</b>, Refresh 토큰 <b>14일</b></li>
+              <li>Refresh 토큰 <b>회전(rotation)</b>과 폐기(로그아웃)</li>
+              <li>토큰 헤더에 <code>kid</code>(RFC 7638) 포함</li>
+            </ul>
+          </div>
+          <div class="card">
+            <span class="tag">보안</span><h3>JWT 검증 제약</h3>
+            <ul class="list">
+              <li><code>SignedWith</code> 로 서명 알고리즘 <b>고정</b> → <code>alg:none</code> 우회 차단</li>
+              <li><code>StrictValidAt</code> 로 <code>iat</code>·<code>nbf</code>·<code>exp</code> 모두 검증</li>
+              <li>만료는 <code>TOKEN_EXPIRED</code> 로 구분 응답</li>
+            </ul>
+          </div>
+          <div class="card">
+            <span class="tag">인가</span><h3>회원구분 기반 접근 제어</h3>
+            <ul class="list">
+              <li>운영자 / 대행사 / 일반회원 — JWT <code>role</code> 클레임</li>
+              <li>자가가입은 항상 일반회원</li>
+              <li>운영자 전용 엔드포인트는 <code>#[RequireRole]</code> 어트리뷰트 + <code>RoleGuardMiddleware</code></li>
+            </ul>
+          </div>
+          <div class="card">
+            <span class="tag">계정</span><h3>가입 · 이메일 인증</h3>
+            <ul class="list">
+              <li>자가가입 후 이메일 인증 코드 확인 · 재발송</li>
+              <li>비밀번호 정책(최소 10자) · 해시 저장</li>
+              <li>본인 조회·수정·탈퇴(<code>/me</code>)</li>
+              <li>운영자의 회원 목록·상세·수정 및 계정 생성</li>
+            </ul>
+          </div>
+          <div class="card">
+            <span class="tag">방어</span><h3>레이트 리밋</h3>
+            <ul class="list">
+              <li>Redis 기반 슬라이딩 윈도우 (1분)</li>
+              <li>로그인·가입·인증 등 민감 경로는 <b>엄격 정책</b></li>
+              <li>초과 시 <code>429</code> + <code>Retry-After</code></li>
+            </ul>
+          </div>
+          <div class="card">
+            <span class="tag">연동</span><h3>JWKS 공개키 배포</h3>
+            <ul class="list">
+              <li>RS256 전환 시 공개키를 JWKS(RFC 7517)로 자동 제공</li>
+              <li>외부 서비스가 키를 내려받아 토큰 검증 · 키 회전 대응</li>
+              <li>HS256 에서는 시크릿을 노출하지 않고 빈 키셋 반환</li>
+            </ul>
+          </div>
+          <div class="card">
+            <span class="tag">비동기</span><h3>Redis 큐 &amp; 워커</h3>
+            <ul class="list">
+              <li>클라이언트 로그 수집(<code>POST /logs</code>) → 즉시 <code>202</code> 후 큐 적재</li>
+              <li>메일 발송 · 로그 처리 CLI 워커</li>
+              <li>요청 사이클에서 무거운 작업을 분리</li>
+            </ul>
+          </div>
+          <div class="card">
+            <span class="tag">모니터링</span><h3>로그인 이상 탐지 · 리포트</h3>
+            <ul class="list">
+              <li>로그인 이벤트 스코어링(규칙 + Claude)</li>
+              <li>임계값 초과 시 쿨다운을 둔 실시간 알림 메일</li>
+              <li>일일 로그·보안 리포트를 AI 서술로 메일 발송 (AI 불가 시 통계 폴백)</li>
+            </ul>
+          </div>
+          <div class="card">
+            <span class="tag">문서</span><h3>OpenAPI 자동 생성</h3>
+            <ul class="list">
+              <li>PHP 어트리뷰트에서 스펙을 생성 (<code>swagger-php</code> v5)</li>
+              <li>RapiDoc UI — 좌측 API 목록, Try-it-out, <code>bearerAuth</code> 지원</li>
+              <li>공통 <code>ErrorResponse</code> 스키마로 에러 규약 통일</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="architecture">
+      <div class="wrap">
+        <h2>아키텍처</h2>
+        <p class="sub">프레임워크 대신 PSR 표준 라이브러리를 조합합니다. 웹에 노출되는 진입점은 <code>public/index.php</code> 하나입니다.</p>
+        <div class="pipe">
+          <span>ErrorHandler</span><i>→</i><span>TrailingSlash</span><i>→</i><span>Cors</span><i>→</i><span>RateLimit</span><i>→</i><span>JwtAuth</span><i>→</i><span>RoleGuard</span><i>→</i><span>RouteDispatch</span>
+        </div>
+<pre>Request → PSR-15 middleware pipeline (Relay)
+        → Controller   입력 검증 → 서비스 호출 → 표준 응답   (얇게 유지)
+        → Service      비즈니스 로직 · 트랜잭션
+        → Repository   PDO prepared statement 전용 데이터 접근
+        → PSR-7 Response
+
+의존성은 PHP-DI(PSR-11) 생성자 주입으로만 연결합니다.</pre>
+        <div class="grid" style="margin-top:14px">
+          <div class="card"><h3>계층 분리</h3><p>Controller / Service / Repository / Middleware / Domain(DTO·enum) / Support 로 책임을 나눕니다. 컨트롤러·서비스에서 SQL 을 직접 실행하지 않습니다.</p></div>
+          <div class="card"><h3>표준 응답 · 에러 규약</h3><p><code>{status, data, meta}</code> 성공 응답과 <code>{status, code, message}</code> 에러 응답. 도메인 예외가 HTTP 상태와 에러 코드를 함께 지닙니다.</p></div>
+          <div class="card"><h3>시간대 규약</h3><p>DB 는 UTC 로 저장하고, 애플리케이션·화면은 Asia/Seoul(KST)로 다룹니다.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="stack">
+      <div class="wrap">
+        <h2>적용 기술</h2>
+        <p class="sub">모든 의존성은 Composer 로 관리하며 PSR-4 오토로딩을 사용합니다.</p>
+        <div class="tbl">
+          <table>
+            <thead><tr><th>영역</th><th>채택</th><th>비고</th></tr></thead>
+            <tbody>
+              <tr><td>언어</td><td>PHP 8.4+</td><td><code>readonly</code> · enum · 완전한 타입 선언</td></tr>
+              <tr><td>HTTP 메시지</td><td><code>nyholm/psr7</code></td><td>PSR-7</td></tr>
+              <tr><td>미들웨어</td><td><code>relay/relay</code></td><td>PSR-15 디스패처</td></tr>
+              <tr><td>라우팅</td><td><code>nikic/fast-route</code></td><td>초경량 라우터</td></tr>
+              <tr><td>DI 컨테이너</td><td><code>php-di/php-di</code></td><td>PSR-11 · 생성자 주입</td></tr>
+              <tr><td>JWT</td><td><code>lcobucci/jwt</code></td><td>HS256 / RS256 · <code>alg</code> 고정</td></tr>
+              <tr><td>DB</td><td>MySQL 8 · PDO</td><td>prepared statement · 마이그레이션 <code>robmorgan/phinx</code></td></tr>
+              <tr><td>캐시·큐</td><td>Redis · <code>predis/predis</code></td><td>캐시, 레이트 리밋, 비동기 큐</td></tr>
+              <tr><td>입력 검증</td><td><code>respect/validation</code></td><td>컨트롤러 진입 시점</td></tr>
+              <tr><td>레이트 리밋</td><td><code>symfony/rate-limiter</code></td><td>brute-force 방어</td></tr>
+              <tr><td>환경변수</td><td><code>vlucas/phpdotenv</code></td><td><code>.env</code></td></tr>
+              <tr><td>API 문서</td><td><code>zircote/swagger-php</code> v5 + RapiDoc</td><td>OpenAPI 어트리뷰트</td></tr>
+              <tr><td>AI</td><td>Claude</td><td>로그 분류 · 이상 탐지 스코어링 · 리포트 서술</td></tr>
+              <tr><td>품질</td><td>PHPStan level 8 · PHP-CS-Fixer · PHPUnit</td><td>PSR-12 · Git hook 로컬 검증</td></tr>
+              <tr><td>CI/CD</td><td>GitHub Actions</td><td>self-hosted runner · SSH 자동 배포</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="api">
+      <div class="wrap">
+        <h2>API 한눈에 보기</h2>
+        <p class="sub">전체 요청·응답 스키마와 Try-it-out 은 <a href="/api/docs">Swagger 문서</a>에서 확인하세요. 접두어는 <code>/api/v1</code> 입니다.</p>
+        <div class="tbl">
+          <table>
+            <thead><tr><th>엔드포인트</th><th>설명</th><th>인증</th></tr></thead>
+            <tbody>
+              <tr><td><span class="m post">POST</span><code>/tokens</code></td><td>로그인 — Access·Refresh 토큰 발급</td><td>공개</td></tr>
+              <tr><td><span class="m post">POST</span><code>/tokens/refresh</code></td><td>토큰 갱신 (Refresh 회전)</td><td>공개</td></tr>
+              <tr><td><span class="m del">DELETE</span><code>/tokens</code></td><td>로그아웃 — Refresh 토큰 폐기</td><td>공개</td></tr>
+              <tr><td><span class="m post">POST</span><code>/users</code></td><td>회원가입</td><td>공개</td></tr>
+              <tr><td><span class="m post">POST</span><code>/users/verify</code></td><td>이메일 인증 확인 · <code>/users/verify/resend</code> 재발송</td><td>공개</td></tr>
+              <tr><td><span class="m post">POST</span><code>/logs</code></td><td>클라이언트 로그 수집 (큐 적재, 202)</td><td>공개</td></tr>
+              <tr><td><span class="m get">GET</span><code>/me</code></td><td>내 정보 조회</td><td>Bearer</td></tr>
+              <tr><td><span class="m patch">PATCH</span><code>/me</code></td><td>내 정보 수정</td><td>Bearer</td></tr>
+              <tr><td><span class="m del">DELETE</span><code>/me</code></td><td>회원 탈퇴</td><td>Bearer</td></tr>
+              <tr><td><span class="m post">POST</span><code>/operators</code></td><td>운영자·대행사·일반회원 계정 생성</td><td>Bearer · 운영자</td></tr>
+              <tr><td><span class="m get">GET</span><code>/users</code></td><td>회원 목록 · <code>/users/{id}</code> 상세</td><td>Bearer · 운영자</td></tr>
+              <tr><td><span class="m patch">PATCH</span><code>/users/{id}</code></td><td>회원 정보 수정</td><td>Bearer · 운영자</td></tr>
+              <tr><td><span class="m get">GET</span><code>/jwks.json</code></td><td>JWKS 공개키 (<code>/.well-known/jwks.json</code> 동일)</td><td>공개</td></tr>
+              <tr><td><span class="m get">GET</span><code>/openapi.json</code></td><td>OpenAPI 스펙</td><td>공개</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="sub" style="margin-top:20px">로그인 예시</p>
+<pre>curl -X POST /api/v1/tokens \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"user@example.com","password":"********"}'
+
+# 이후 보호된 API 호출
+curl /api/v1/me -H 'Authorization: Bearer &lt;access_token&gt;'</pre>
+      </div>
+    </section>
+
+    <section id="ops">
+      <div class="wrap">
+        <h2>품질 · 운영</h2>
+        <div class="grid">
+          <div class="card"><span class="tag">검증</span><h3>로컬 우선 게이트</h3><p><code>pre-push</code> hook 이 <code>dev</code> 푸시 전 CS-Fixer · PHPStan(level 8) · PHPUnit 을 실행합니다. <code>main</code> 직접 푸시는 차단됩니다.</p></div>
+          <div class="card"><span class="tag">CI</span><h3>GitHub Actions</h3><p><code>dev → main</code> 배포 PR 에서 코드 스타일·정적 분석·마이그레이션·테스트를 self-hosted runner 로 실행합니다.</p></div>
+          <div class="card"><span class="tag">CD</span><h3>SSH 자동 배포</h3><p><code>main</code> 머지 시 최신 코드 반영 → <code>composer install</code> → 마이그레이션 → 캐시 정리 → 웹서버 reload, Slack 으로 결과를 알립니다.</p></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>AITessera v{{version}} · Your key to trusted access.</span>
+      <span><a href="/api/docs">API 문서</a> · <a href="/api/v1/openapi.json">OpenAPI</a> · <a href="/health">Health</a></span>
+    </div>
+  </footer>
+</body>
+</html>

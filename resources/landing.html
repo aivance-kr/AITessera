@@ -112,7 +112,7 @@
         <div class="btns">
           <a class="btn primary" href="/api/docs">API 문서 (Swagger) 열기</a>
           <a class="btn" href="/api/v1/openapi.json">OpenAPI 스펙 (JSON)</a>
-          <a class="btn" href="/.well-known/jwks.json">JWKS 공개키</a>
+          <a class="btn" href="/api/v1/jwks.json">JWKS 공개키</a>
           <a class="btn" href="/health">헬스체크</a>
         </div>
         <div class="stats">
@@ -290,7 +290,7 @@
               <tr><td><span class="m post">POST</span><code>/operators</code></td><td>운영자·대행사·일반회원 계정 생성</td><td>Bearer · 운영자</td></tr>
               <tr><td><span class="m get">GET</span><code>/users</code></td><td>회원 목록 · <code>/users/{id}</code> 상세</td><td>Bearer · 운영자</td></tr>
               <tr><td><span class="m patch">PATCH</span><code>/users/{id}</code></td><td>회원 정보 수정</td><td>Bearer · 운영자</td></tr>
-              <tr><td><span class="m get">GET</span><code>/jwks.json</code></td><td>JWKS 공개키 (<code>/.well-known/jwks.json</code> 동일)</td><td>공개</td></tr>
+              <tr><td><span class="m get">GET</span><code>/jwks.json</code></td><td>JWKS 공개키 (RS256)</td><td>공개</td></tr>
               <tr><td><span class="m get">GET</span><code>/openapi.json</code></td><td>OpenAPI 스펙</td><td>공개</td></tr>
             </tbody>
           </table>

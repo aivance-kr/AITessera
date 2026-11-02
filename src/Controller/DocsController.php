@@ -55,6 +55,9 @@ final readonly class DocsController
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1">
           <title>AITessera API 문서</title>
+          <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+          <link rel="icon" sizes="48x48" href="/favicon.ico">
+          <link rel="apple-touch-icon" href="/apple-touch-icon.png">
           <script type="module" src="https://unpkg.com/rapidoc/dist/rapidoc-min.js"></script>
           <style>body { margin: 0; }</style>
         </head>

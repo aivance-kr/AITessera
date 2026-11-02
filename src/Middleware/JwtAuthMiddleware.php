@@ -43,6 +43,9 @@ final readonly class JwtAuthMiddleware implements MiddlewareInterface
      */
     private const array PUBLIC_ROUTES = [
         ['GET', '/'],
+        ['GET', '/robots.txt'],
+        ['GET', '/sitemap.xml'],
+        ['GET', '/llms.txt'],
         ['GET', '/health'],
         ['POST', '/api/v1/tokens'],
         ['POST', '/api/v1/tokens/refresh'],

@@ -125,6 +125,39 @@ final class PipelineTest extends TestCase
         self::assertStringNotContainsString('{{version}}', (string) $response->getBody());
     }
 
+    public function testLandingPageHasSeoAndStructuredData(): void
+    {
+        $html = (string) $this->handle('GET', '/')->getBody();
+
+        self::assertStringContainsString('<link rel="canonical"', $html);
+        self::assertStringContainsString('property="og:title"', $html);
+        self::assertStringContainsString('name="twitter:card"', $html);
+        self::assertSame(1, substr_count($html, '<h1'));
+        self::assertStringNotContainsString('{{base_url}}', $html);
+        self::assertSame(4, substr_count($html, 'application/ld+json'));
+    }
+
+    public function testCrawlerFilesArePublic(): void
+    {
+        $robots = $this->handle('GET', '/robots.txt');
+        self::assertSame(200, $robots->getStatusCode());
+        $text = (string) $robots->getBody();
+        foreach (['GPTBot', 'ClaudeBot', 'PerplexityBot', 'Google-Extended'] as $agent) {
+            self::assertStringContainsString("User-agent: {$agent}", $text);
+        }
+        self::assertStringContainsString('Disallow: /api/', $text);
+        self::assertStringContainsString('Sitemap: ', $text);
+
+        $sitemap = $this->handle('GET', '/sitemap.xml');
+        self::assertSame(200, $sitemap->getStatusCode());
+        self::assertStringContainsString('application/xml', $sitemap->getHeaderLine('Content-Type'));
+        self::assertStringContainsString('<loc>', (string) $sitemap->getBody());
+
+        $llms = $this->handle('GET', '/llms.txt');
+        self::assertSame(200, $llms->getStatusCode());
+        self::assertStringContainsString('# AITessera', (string) $llms->getBody());
+    }
+
     public function testApiDocsPageIsServed(): void
     {
         $response = $this->handle('GET', '/api/docs');

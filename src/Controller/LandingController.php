@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controller;
 
+use App\Support\Config;
 use App\Support\Version;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -21,6 +22,7 @@ final readonly class LandingController
     private const string TEMPLATE_PATH = __DIR__ . '/../../resources/landing.html';
 
     public function __construct(
+        private Config $config,
         private ResponseFactoryInterface $responseFactory,
         private StreamFactoryInterface $streamFactory,
     ) {
@@ -29,7 +31,15 @@ final readonly class LandingController
     public function index(ServerRequestInterface $request): ResponseInterface
     {
         $template = (string) file_get_contents(self::TEMPLATE_PATH);
-        $html = str_replace('{{version}}', htmlspecialchars(Version::APP_VERSION, ENT_QUOTES), $template);
+        // 절대 URL(canonical·OG·JSON-LD)은 APP_BASE_URL 에서 만든다 — 환경(로컬/운영)별로 달라진다.
+        $html = str_replace(
+            ['{{version}}', '{{base_url}}'],
+            [
+                htmlspecialchars(Version::APP_VERSION, ENT_QUOTES),
+                htmlspecialchars(rtrim($this->config->appBaseUrl, '/'), ENT_QUOTES),
+            ],
+            $template,
+        );
 
         return $this->responseFactory
             ->createResponse(200)

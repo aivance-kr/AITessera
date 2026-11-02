@@ -3,8 +3,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AITessera — Your key to trusted access</title>
-  <meta name="description" content="AIvance 제품군을 위한 JWT 기반 인증·인가 API, AITessera 소개">
+  <title>AITessera — AIvance JWT 인증·인가 API</title>
+  <meta name="description" content="AITessera 는 AIvance 제품군을 위한 JWT 기반 인증·인가 REST API 입니다. Access/Refresh 토큰, 회원구분 기반 접근 제어, JWKS 공개키 배포를 제공합니다.">
+  <link rel="canonical" href="{{base_url}}/">
+  <meta name="robots" content="index,follow,max-snippet:-1,max-image-preview:large">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="AITessera">
+  <meta property="og:locale" content="ko_KR">
+  <meta property="og:title" content="AITessera — AIvance JWT 인증·인가 API">
+  <meta property="og:description" content="AIvance 제품군을 위한 JWT 기반 인증·인가 REST API. Access/Refresh 토큰, 역할 기반 접근 제어, JWKS 공개키 배포.">
+  <meta property="og:url" content="{{base_url}}/">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="AITessera — AIvance JWT 인증·인가 API">
+  <meta name="twitter:description" content="AIvance 제품군을 위한 JWT 기반 인증·인가 REST API.">
+  <link rel="alternate" type="text/plain" href="{{base_url}}/llms.txt" title="llms.txt">
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"AIvance","url":"{{base_url}}/"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"AITessera","url":"{{base_url}}/","inLanguage":"ko"}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"AITessera","applicationCategory":"DeveloperApplication","applicationSubCategory":"Authentication API","operatingSystem":"Web","softwareVersion":"{{version}}","url":"{{base_url}}/","description":"AIvance 제품군을 위한 JWT 기반 인증·인가 REST API. Access/Refresh 토큰, 회원구분 기반 접근 제어, JWKS 공개키 배포를 제공한다.","publisher":{"@type":"Organization","name":"AIvance"}}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"AITessera 는 무엇인가요?","acceptedAnswer":{"@type":"Answer","text":"AITessera 는 AIvance 제품군을 위한 JWT 기반 인증·인가 REST API 입니다. 가입, 이메일 인증, 로그인, 토큰 갱신, 로그아웃, 회원 관리를 하나의 API 로 제공해 각 서비스가 인증을 직접 구현하지 않도록 합니다."}},{"@type":"Question","name":"어떤 토큰을 발급하나요?","acceptedAnswer":{"@type":"Answer","text":"수명이 짧은 Access 토큰(15분)과 수명이 긴 Refresh 토큰(14일)을 발급합니다. Refresh 토큰은 갱신할 때마다 회전하며 로그아웃 시 폐기됩니다. 서명 알고리즘은 HS256 또는 RS256 으로 고정해 alg:none 우회를 차단합니다."}},{"@type":"Question","name":"다른 서비스는 토큰을 어떻게 검증하나요?","acceptedAnswer":{"@type":"Answer","text":"RS256 으로 운영할 때 공개키를 JWKS(RFC 7517) 형식으로 /.well-known/jwks.json 에서 인증 없이 제공합니다. HS256 에서는 시크릿을 노출하지 않고 빈 키셋을 반환합니다."}},{"@type":"Question","name":"어떤 회원 구분을 지원하나요?","acceptedAnswer":{"@type":"Answer","text":"운영자, 대행사, 일반회원 세 가지 역할을 지원하며 JWT 의 role 클레임으로 접근을 제어합니다. 자가가입은 항상 일반회원으로 생성됩니다."}},{"@type":"Question","name":"API 문서는 어디서 볼 수 있나요?","acceptedAnswer":{"@type":"Answer","text":"/api/docs 에서 Swagger 기반 API 문서를, /api/v1/openapi.json 에서 OpenAPI 스펙을 인증 없이 확인할 수 있습니다."}}]}</script>
   <style>
     :root {
       --bg: #f7f8fb; --surface: #ffffff; --text: #151a28; --muted: #4b5568;
@@ -94,6 +110,7 @@
         <a href="#stack">적용 기술</a>
         <a href="#api">API</a>
         <a href="#ops">운영</a>
+        <a href="#faq">FAQ</a>
         <a href="/api/docs">Swagger 문서</a>
       </nav>
     </div>
@@ -302,6 +319,19 @@
 
 # 이후 보호된 API 호출
 curl /api/v1/me -H 'Authorization: Bearer &lt;access_token&gt;'</pre>
+      </div>
+    </section>
+
+    <section id="faq">
+      <div class="wrap">
+        <h2>자주 묻는 질문</h2>
+        <div class="grid">
+          <div class="card"><h3>AITessera 는 무엇인가요?</h3><p>AITessera 는 AIvance 제품군을 위한 JWT 기반 인증·인가 REST API 입니다. 가입, 이메일 인증, 로그인, 토큰 갱신, 로그아웃, 회원 관리를 하나의 API 로 제공해 각 서비스가 인증을 직접 구현하지 않도록 합니다.</p></div>
+          <div class="card"><h3>어떤 토큰을 발급하나요?</h3><p>수명이 짧은 Access 토큰(15분)과 수명이 긴 Refresh 토큰(14일)을 발급합니다. Refresh 토큰은 갱신할 때마다 회전하며 로그아웃 시 폐기됩니다. 서명 알고리즘은 HS256 또는 RS256 으로 고정해 alg:none 우회를 차단합니다.</p></div>
+          <div class="card"><h3>다른 서비스는 토큰을 어떻게 검증하나요?</h3><p>RS256 으로 운영할 때 공개키를 JWKS(RFC 7517) 형식으로 /.well-known/jwks.json 에서 인증 없이 제공합니다. HS256 에서는 시크릿을 노출하지 않고 빈 키셋을 반환합니다.</p></div>
+          <div class="card"><h3>어떤 회원 구분을 지원하나요?</h3><p>운영자, 대행사, 일반회원 세 가지 역할을 지원하며 JWT 의 role 클레임으로 접근을 제어합니다. 자가가입은 항상 일반회원으로 생성됩니다.</p></div>
+          <div class="card"><h3>API 문서는 어디서 볼 수 있나요?</h3><p>/api/docs 에서 Swagger 기반 API 문서를, /api/v1/openapi.json 에서 OpenAPI 스펙을 인증 없이 확인할 수 있습니다.</p></div>
+        </div>
       </div>
     </section>
 

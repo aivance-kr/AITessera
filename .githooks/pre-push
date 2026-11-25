@@ -2,14 +2,13 @@
 #
 # pre-push 훅 — 검증 게이트의 실질적 방어선.
 #
-#   feature/*  ──[여기: 검증 없음, 빠른 반복]──▶  dev  ──[여기: composer check 필수]──▶  main
-#                                                    ↑                                  ↑
-#                                             실질적 게이트                       직접 push 차단
+#   feature/*  ──[여기: composer check 필수 = PR 전 게이트]──▶  dev  ──▶  main
+#                                                                     ↑
+#                                                              직접 push 차단
 #
 # 정책:
-#   - feature/* 로의 push 는 검증하지 않는다 (작업 중 빠른 반복을 막지 않기 위해).
-#   - dev 로의 push 는 composer check(cs-check + PHPStan + PHPUnit) 통과가 필수.
-#     실패하면 push 를 중단한다 — feature → dev PR 에는 CI 가 없으므로 이 훅이 유일한 방어선.
+#   - main 이외 모든 브랜치(feature/* 포함)로의 push 는 composer check(cs-check + PHPStan + PHPUnit) 통과가 필수.
+#     실패하면 push 를 중단한다 — feature → dev PR 에는 CI 가 없으므로 이 훅이 PR 전 유일한 방어선.
 #   - main 직접 push 는 무조건 차단한다. 배포는 dev → main PR(merge commit)로만.
 #   - 문서 전용 변경(*.md, docs/**, .claude/rules/** 만 바뀐 push)은 비교 대상 코드가
 #     없다고 판단해 composer 검증을 자동으로 건너뛴다. 코드가 한 줄이라도 섞이면 즉시 전체 검증.
@@ -40,13 +39,13 @@ while read -r local_ref local_sha remote_ref remote_sha; do
             blocked=1
             continue
             ;;
-        refs/heads/dev)
+        refs/heads/*)
             if [ "$local_sha" = "$zero_sha" ]; then
-                # dev 브랜치 삭제 push — 검증 대상 없음
+                # 브랜치 삭제 push — 검증 대상 없음
                 continue
             fi
             if [ "$remote_sha" = "$zero_sha" ]; then
-                # dev 브랜치 신규 생성 등 비교 기준이 없는 경우 — 안전하게 전체 검증
+                # 브랜치 신규 생성 등 비교 기준이 없는 경우 — 안전하게 전체 검증
                 needs_check=1
                 continue
             fi
@@ -57,11 +56,8 @@ while read -r local_ref local_sha remote_ref remote_sha; do
             if echo "$changed_files" | grep -qvE '\.md$|^docs/|^\.claude/rules/'; then
                 needs_check=1
             else
-                echo "ℹ pre-push: 문서 전용 변경 감지 (dev) — composer 검증을 건너뜁니다."
+                echo "ℹ pre-push: 문서 전용 변경 감지 — composer 검증을 건너뜁니다."
             fi
-            ;;
-        *)
-            # feature/* 등 그 외 브랜치는 빠른 반복을 위해 검증하지 않는다
             ;;
     esac
 done
@@ -79,7 +75,7 @@ if ! command -v composer >/dev/null 2>&1; then
     exit 0
 fi
 
-echo "▶ pre-push: dev 대상 push 감지 — composer check 실행 중… (스타일·PHPStan·PHPUnit)"
+echo "▶ pre-push: push 감지 — composer check 실행 중… (스타일·PHPStan·PHPUnit)"
 
 if ! composer check; then
     echo ""

@@ -38,7 +38,11 @@ jobs:
         run: |
           docker rm -f -v "$CI_MYSQL_HOST" "$CI_REDIS_HOST" >/dev/null 2>&1 || true
           docker network create "$CI_NETWORK"
-          docker network connect "$CI_NETWORK" "$(hostname)"
+          # 러너가 도커 컨테이너면 네트워크에 붙이고, 호스트(베어메탈/VM)면 붙일 대상이 없다
+          # ("No such container: <hostname>"). 어느 쪽이든 컨테이너 IP 로 접속한다.
+          if docker inspect "$(hostname)" >/dev/null 2>&1; then
+            docker network connect "$CI_NETWORK" "$(hostname)"
+          fi
           docker run -d --name "$CI_MYSQL_HOST" --network "$CI_NETWORK" \
             -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=aitessera \
             -e MYSQL_USER=aitessera -e MYSQL_PASSWORD=aitessera \
@@ -61,6 +65,9 @@ jobs:
             docker logs "$CI_MYSQL_HOST" 2>&1 | tail -20
             exit 1
           fi
+          addr() { docker inspect -f "{{(index .NetworkSettings.Networks \"$CI_NETWORK\").IPAddress}}" "$1"; }
+          echo "CI_MYSQL_ADDR=$(addr "$CI_MYSQL_HOST")" >> "$GITHUB_ENV"
+          echo "CI_REDIS_ADDR=$(addr "$CI_REDIS_HOST")" >> "$GITHUB_ENV"
 
       # setup-php는 Ubuntu 26.04의 ondrej/php PPA에 의존해 실패·무한 대기할 수
       # 있다. runner의 네이티브 apt 패키지를 필요한 경우에만 설치하고, 이미 준비된
@@ -145,12 +152,12 @@ jobs:
           cp .env.example .env
           sed -i \
             -e 's|^APP_ENV=.*|APP_ENV=testing|' \
-            -e "s|^DB_HOST=.*|DB_HOST=${CI_MYSQL_HOST}|" \
+            -e "s|^DB_HOST=.*|DB_HOST=${CI_MYSQL_ADDR}|" \
             -e 's|^DB_PORT=.*|DB_PORT=3306|' \
             -e 's|^DB_NAME=.*|DB_NAME=aitessera|' \
             -e 's|^DB_USER=.*|DB_USER=aitessera|' \
             -e 's|^DB_PASS=.*|DB_PASS=aitessera|' \
-            -e "s|^REDIS_HOST=.*|REDIS_HOST=${CI_REDIS_HOST}|" \
+            -e "s|^REDIS_HOST=.*|REDIS_HOST=${CI_REDIS_ADDR}|" \
             -e 's|^REDIS_PORT=.*|REDIS_PORT=6379|' \
             -e 's|^JWT_SECRET=.*|JWT_SECRET=ci_test_secret_at_least_32_characters_long|' \
             .env

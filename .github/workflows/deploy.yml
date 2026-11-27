@@ -15,7 +15,7 @@ concurrency:
 jobs:
   deploy:
     name: Deploy to production (SSH)
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, X64, docker]
     environment: production
 
     steps:
@@ -63,10 +63,22 @@ jobs:
               exit 1
             fi
 
-            # OPcache 갱신은 아래 아파치 reload 로 처리한다(무중단). Redis 애플리케이션 캐시는
+            # OPcache 갱신은 아래 PHP-FPM reload 로 처리한다(무중단). Redis 애플리케이션 캐시는
             # 큐·레이트리밋 상태를 공유하므로 배포 시 일괄 flush 하지 않는다(TTL 로 자연 갱신).
-            echo "▶ 5) 아파치 reload (OPcache 갱신, 무중단)"
+            echo "▶ 5) 아파치·PHP-FPM reload (OPcache 갱신, 무중단)"
             sudo -n systemctl reload apache2
+
+            # PHP 는 PHP-FPM 이 실행하므로 apache2 리로드로는 OPcache 가 비워지지 않는다.
+            # 실행 중인 php*-fpm 서비스를 찾아 graceful 리로드한다(처리 중 요청은 마친다).
+            # sudoers 에 NOPASSWD 가 없어도 배포는 실패시키지 않는다(OPcache 는 validate_timestamps 로 결국 갱신된다).
+            #   서버 준비: '<DEPLOY_USER> ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload php8.5-fpm'
+            fpm_svc="$(systemctl list-units --type=service --state=running --no-legend 'php*-fpm.service' | awk '{for (i = 1; i <= NF; i++) if ($i ~ /\.service$/) { print $i; exit }}')"
+            fpm_svc="${fpm_svc%.service}"
+            if [ -n "$fpm_svc" ]; then
+              sudo -n systemctl reload "$fpm_svc" || echo "⚠️ $fpm_svc 리로드 실패(sudoers NOPASSWD 확인) — OPcache 는 validate_timestamps 로 갱신된다"
+            else
+              echo "⚠️ 실행 중인 php-fpm 서비스가 없어 리로드를 건너뛴다"
+            fi
 
             echo "✅ 배포 완료: $(git rev-parse --short HEAD)"
 

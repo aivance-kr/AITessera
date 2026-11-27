@@ -273,7 +273,7 @@ production server. Defined in: `.github/workflows/deploy.yml`.
 - **Trigger**: push to `main` + `workflow_dispatch` (manual / rollback)
 - **Concurrency**: `deploy-production` group — only 1 concurrent deployment, `cancel-in-progress: false`
 - **Job runner**: runs on the same organization self-hosted runner as CI (`runs-on: [self-hosted, Linux, X64]`)
-- **Target**: a single Ubuntu + mod_php (or PHP-FPM) Apache server (deployed via SSH using appleboy/ssh-action — the deploy target server is separate from this job runner)
+- **Target**: a single Ubuntu + Apache + PHP-FPM (`php8.5-fpm`) server (deployed via SSH using appleboy/ssh-action — the deploy target server is separate from this job runner)
 
 ### Deployment procedure (executed via SSH on the server)
 
@@ -282,7 +282,7 @@ production server. Defined in: `.github/workflows/deploy.yml`.
 3. `composer install --no-dev --optimize-autoloader`
 4. `php bin/console migrate` — grep the output for exceptions and `exit 1` to abort the deploy if found
 5. Clear caches (OPcache / Redis application cache)
-6. `sudo -n systemctl reload apache2` (or `php-fpm`) — refresh OPcache (zero downtime)
+6. `sudo -n systemctl reload apache2` + reload the running `php*-fpm` service — zero downtime, refreshes OPcache (an FPM reload failure only logs a warning)
 7. **Slack notification** — after the SSH deploy steps (1-6) finish, the GitHub Actions runner sends
    the result to an Incoming Webhook (`SLACK_WEBHOOK_URL`) in separate success (`if: success()`) and
    failure (`if: failure()`) steps
@@ -308,7 +308,7 @@ production server. Defined in: `.github/workflows/deploy.yml`.
 
 - **GitHub read-only deploy key** — set the server repo remote to SSH (`git@github.com:...`) (HTTPS fails with `could not read Username`)
 - **Production `.env`** with real DB, Redis, and JWT credentials (missing this causes `Access denied` during migrate)
-- **Passwordless sudo**: in `/etc/sudoers.d/aitessera-deploy`, `<DEPLOY_USER> ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload apache2` (missing this fails with `sudo: a password is required`)
+- **Passwordless sudo**: in `/etc/sudoers.d/aitessera-deploy`, `<DEPLOY_USER> ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload apache2, /usr/bin/systemctl reload php8.5-fpm` (missing the apache2 rule this fails with `sudo: a password is required`)
 - Apache's `DocumentRoot` is `public/`; `var/` must be writable by the Apache user (`www-data`)
 - **var/ setgid setup (recommended)** — eliminates chmod failures caused by ownership conflicts at the root:
   ```bash

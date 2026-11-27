@@ -287,6 +287,21 @@ production server. Defined in: `.github/workflows/deploy.yml`.
 - **Job runner**: runs on the same organization self-hosted runner as CI (`runs-on: [self-hosted, Linux, X64]`)
 - **Target**: a single Ubuntu + Apache + PHP-FPM (`php8.5-fpm`) server (deployed via SSH using appleboy/ssh-action — the deploy target server is separate from this job runner)
 
+### Rust port build (on the runner, before SSH)
+
+The production server has **no Rust toolchain (cargo)** and must not need one. The workflow has two jobs:
+
+- `build-rust` — runs `cargo build --release --locked` when the commit has `rust/Cargo.lock`, and
+  hands the binary to the next job as an artifact with its sha256. It gets **no production secrets and no
+  `environment`**, because `build.rs`/proc-macros execute repository code during the build.
+- `deploy` — checks the build result first (a failed build fails this job, so the Slack failure
+  notification still fires, and the server is untouched), verifies the artifact's sha256, and uploads it
+  with plain `scp` (not `appleboy/scp-action`, a Docker container action that cannot see the runner
+  workspace) to `<DEPLOY_PATH>/rust/target/release/aitessera.new`.
+
+Both jobs run only for `refs/heads/main`: the server always resets to `origin/main`, so a manual run
+from another ref would ship a binary that does not match the deployed source.
+
 ### Deployment procedure (executed via SSH on the server)
 
 1. `git reset --hard origin/main` — bring in the latest main
@@ -295,7 +310,12 @@ production server. Defined in: `.github/workflows/deploy.yml`.
 4. `php bin/console migrate` — grep the output for exceptions and `exit 1` to abort the deploy if found
 5. Clear caches (OPcache / Redis application cache)
 6. `sudo -n systemctl reload apache2` + reload the running `php*-fpm` service — zero downtime, refreshes OPcache (an FPM reload failure only logs a warning)
-7. **Slack notification** — after the SSH deploy steps (1-6) finish, the GitHub Actions runner sends
+7. Swap the Rust binary — install `.new` only when this run passed its sha256 and `sha256sum -c` passes
+   (a leftover `.new` from an earlier run is deleted, never installed); then `ldd` it (abort if a library/`GLIBC_x.y` is `not found`,
+   i.e. the runner's glibc is newer than the server's), then `mv -f` it into place; restart
+   `aitessera-rust.service` only if that unit exists (needs a sudoers NOPASSWD entry for
+   `systemctl restart aitessera-rust`)
+8. **Slack notification** — after the SSH deploy steps (1-7) finish, the GitHub Actions runner sends
    the result to an Incoming Webhook (`SLACK_WEBHOOK_URL`) in separate success (`if: success()`) and
    failure (`if: failure()`) steps
 
@@ -315,6 +335,10 @@ production server. Defined in: `.github/workflows/deploy.yml`.
 - `SLACK_WEBHOOK_URL` (optional) — when set, notifies deploy success/failure via a Slack Incoming
   Webhook. If unset, the notification step is automatically skipped and the deployment itself is
   unaffected.
+- `DEPLOY_SSH_HOST_KEY` (optional) — the server's SSH host public key, one line `<type> <base64>`
+  (verify it on the server, e.g. `cat /etc/ssh/ssh_host_ed25519_key.pub` without the comment). When set,
+  the Rust upload step pins it (`StrictHostKeyChecking=yes`); when unset it falls back to `accept-new`
+  with a warning.
 
 ### One-time server preparation
 

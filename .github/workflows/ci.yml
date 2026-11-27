@@ -222,3 +222,56 @@ jobs:
           docker rm -f -v "$CI_MYSQL_HOST" "$CI_REDIS_HOST" >/dev/null 2>&1 || true
           docker network disconnect -f "$CI_NETWORK" "$(hostname)" >/dev/null 2>&1 || true
           docker network rm "$CI_NETWORK" >/dev/null 2>&1 || true
+
+  rust:
+    name: Rust (rustfmt · Clippy · cargo test)
+    timeout-minutes: 30
+    # backend 와 같은 조직 러너. DB·Redis 가 필요 없는 단위 테스트만 돌리므로 서비스 컨테이너는 띄우지 않는다.
+    runs-on: [self-hosted, Linux, X64, docker]
+
+    permissions:
+      contents: read
+
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      NEEDRESTART_MODE: l
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
+
+    defaults:
+      run:
+        working-directory: rust
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 러너 이미지마다 C 툴체인 유무가 달라 ring 등 네이티브 크레이트 빌드가 실패할 수 있다 — 없을 때만 설치
+      - name: C 컴파일러 확인 (없을 때만 apt 설치)
+        run: |
+          if command -v cc >/dev/null 2>&1; then
+            echo "cc 있음 — apt 건너뜀"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends build-essential
+          fi
+
+      # composite 액션이라 컨테이너 러너에서도 동작한다 (Docker 컨테이너 액션 아님)
+      - name: Rust 툴체인 (stable + rustfmt·clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cargo 캐시
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: rustfmt (check)
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (경고를 에러로)
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: cargo test
+        run: cargo test --locked

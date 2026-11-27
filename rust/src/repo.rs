@@ -80,7 +80,11 @@ pub struct TokenRow {
 
 // ───────────────────────────── users ─────────────────────────────
 
-pub async fn find_active_by_email(db: impl MySqlExecutor<'_>, email: &str, affiliation: &str) -> AppResult<Option<UserRow>> {
+pub async fn find_active_by_email(
+    db: impl MySqlExecutor<'_>,
+    email: &str,
+    affiliation: &str,
+) -> AppResult<Option<UserRow>> {
     Ok(sqlx::query_as::<_, UserRow>(
         "SELECT id, email, password_hash, affiliation, role, is_active, email_verified_at FROM users
          WHERE email = ? AND affiliation = ? AND is_active = 1 AND deleted_at IS NULL
@@ -116,7 +120,10 @@ pub async fn lock_by_id(db: impl MySqlExecutor<'_>, id: i64) -> AppResult<Option
     .await?)
 }
 
-pub async fn find_profile_by_id(db: impl MySqlExecutor<'_>, id: i64) -> AppResult<Option<ProfileRow>> {
+pub async fn find_profile_by_id(
+    db: impl MySqlExecutor<'_>,
+    id: i64,
+) -> AppResult<Option<ProfileRow>> {
     Ok(sqlx::query_as::<_, ProfileRow>(
         "SELECT id, email, name, affiliation, role, contact, company, profile, email_verified_at, created_at FROM users
          WHERE id = ? AND deleted_at IS NULL
@@ -128,7 +135,11 @@ pub async fn find_profile_by_id(db: impl MySqlExecutor<'_>, id: i64) -> AppResul
 }
 
 /// 탈퇴 회원 이메일은 점유로 보지 않고, 소속이 다르면 별개 계정으로 본다
-pub async fn email_exists(db: impl MySqlExecutor<'_>, email: &str, affiliation: &str) -> AppResult<bool> {
+pub async fn email_exists(
+    db: impl MySqlExecutor<'_>,
+    email: &str,
+    affiliation: &str,
+) -> AppResult<bool> {
     let row: Option<(i64,)> = sqlx::query_as(
         "SELECT 1 FROM users WHERE email = ? AND affiliation = ? AND deleted_at IS NULL LIMIT 1",
     )
@@ -175,7 +186,11 @@ pub async fn create_user(db: impl MySqlExecutor<'_>, u: NewUser<'_>) -> AppResul
     Ok(result.last_insert_id() as i64)
 }
 
-pub async fn mark_email_verified(db: impl MySqlExecutor<'_>, id: i64, at: NaiveDateTime) -> AppResult<()> {
+pub async fn mark_email_verified(
+    db: impl MySqlExecutor<'_>,
+    id: i64,
+    at: NaiveDateTime,
+) -> AppResult<()> {
     sqlx::query("UPDATE users SET email_verified_at = ?, updated_at = ? WHERE id = ?")
         .bind(at)
         .bind(at)
@@ -185,7 +200,11 @@ pub async fn mark_email_verified(db: impl MySqlExecutor<'_>, id: i64, at: NaiveD
     Ok(())
 }
 
-pub async fn update_last_login(db: impl MySqlExecutor<'_>, id: i64, at: NaiveDateTime) -> AppResult<()> {
+pub async fn update_last_login(
+    db: impl MySqlExecutor<'_>,
+    id: i64,
+    at: NaiveDateTime,
+) -> AppResult<()> {
     sqlx::query("UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?")
         .bind(at)
         .bind(at)
@@ -253,17 +272,30 @@ pub async fn paginate_by_affiliation(
          LIMIT ? OFFSET ?",
         filter.where_clause()
     );
-    let q = filter.bind(sqlx::query_as::<_, ListRow>(&sql)).bind(limit).bind(offset);
+    let q = filter
+        .bind(sqlx::query_as::<_, ListRow>(&sql))
+        .bind(limit)
+        .bind(offset);
     Ok(q.fetch_all(db).await?)
 }
 
-pub async fn count_by_affiliation(db: impl MySqlExecutor<'_>, filter: &ListFilter<'_>) -> AppResult<i64> {
+pub async fn count_by_affiliation(
+    db: impl MySqlExecutor<'_>,
+    filter: &ListFilter<'_>,
+) -> AppResult<i64> {
     let sql = format!("SELECT COUNT(*) FROM users WHERE {}", filter.where_clause());
-    let (count,): (i64,) = filter.bind(sqlx::query_as::<_, (i64,)>(&sql)).fetch_one(db).await?;
+    let (count,): (i64,) = filter
+        .bind(sqlx::query_as::<_, (i64,)>(&sql))
+        .fetch_one(db)
+        .await?;
     Ok(count)
 }
 
-pub async fn find_manageable_by_id(db: impl MySqlExecutor<'_>, id: i64, affiliation: &str) -> AppResult<Option<ManageRow>> {
+pub async fn find_manageable_by_id(
+    db: impl MySqlExecutor<'_>,
+    id: i64,
+    affiliation: &str,
+) -> AppResult<Option<ManageRow>> {
     Ok(sqlx::query_as::<_, ManageRow>(
         "SELECT id, email, name, affiliation, role, is_active, contact, company, profile, email_verified_at, last_login_at, created_at FROM users
          WHERE id = ? AND affiliation = ? AND deleted_at IS NULL
@@ -289,7 +321,10 @@ pub async fn update_fields(
     at: NaiveDateTime,
 ) -> AppResult<()> {
     const UPDATABLE: [&str; 6] = ["name", "contact", "company", "profile", "role", "is_active"];
-    let fields: Vec<_> = fields.into_iter().filter(|(c, _)| UPDATABLE.contains(c)).collect();
+    let fields: Vec<_> = fields
+        .into_iter()
+        .filter(|(c, _)| UPDATABLE.contains(c))
+        .collect();
     if fields.is_empty() {
         return Ok(());
     }
@@ -307,7 +342,12 @@ pub async fn update_fields(
     Ok(())
 }
 
-pub async fn update_password(db: impl MySqlExecutor<'_>, id: i64, hash: &str, at: NaiveDateTime) -> AppResult<()> {
+pub async fn update_password(
+    db: impl MySqlExecutor<'_>,
+    id: i64,
+    hash: &str,
+    at: NaiveDateTime,
+) -> AppResult<()> {
     sqlx::query("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?")
         .bind(hash)
         .bind(at)
@@ -333,7 +373,12 @@ pub async fn soft_delete(db: impl MySqlExecutor<'_>, id: i64, at: NaiveDateTime)
 
 // ───────────────────────────── refresh_tokens ─────────────────────────────
 
-pub async fn store_refresh_token(db: impl MySqlExecutor<'_>, user_id: i64, hash: &str, expires_at: NaiveDateTime) -> AppResult<()> {
+pub async fn store_refresh_token(
+    db: impl MySqlExecutor<'_>,
+    user_id: i64,
+    hash: &str,
+    expires_at: NaiveDateTime,
+) -> AppResult<()> {
     sqlx::query("INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)")
         .bind(user_id)
         .bind(hash)
@@ -343,7 +388,10 @@ pub async fn store_refresh_token(db: impl MySqlExecutor<'_>, user_id: i64, hash:
     Ok(())
 }
 
-pub async fn find_refresh_token(db: impl MySqlExecutor<'_>, hash: &str) -> AppResult<Option<TokenRow>> {
+pub async fn find_refresh_token(
+    db: impl MySqlExecutor<'_>,
+    hash: &str,
+) -> AppResult<Option<TokenRow>> {
     Ok(sqlx::query_as::<_, TokenRow>(
         "SELECT id, user_id, expires_at, revoked_at AS closed_at FROM refresh_tokens
          WHERE token_hash = ?
@@ -355,7 +403,10 @@ pub async fn find_refresh_token(db: impl MySqlExecutor<'_>, hash: &str) -> AppRe
 }
 
 /// find_refresh_token + 행 잠금(FOR UPDATE) — 트랜잭션 안에서만 사용 (PHP `lockByHash`)
-pub async fn lock_refresh_token(db: impl MySqlExecutor<'_>, hash: &str) -> AppResult<Option<TokenRow>> {
+pub async fn lock_refresh_token(
+    db: impl MySqlExecutor<'_>,
+    hash: &str,
+) -> AppResult<Option<TokenRow>> {
     Ok(sqlx::query_as::<_, TokenRow>(
         "SELECT id, user_id, expires_at, revoked_at AS closed_at FROM refresh_tokens
          WHERE token_hash = ?
@@ -367,7 +418,11 @@ pub async fn lock_refresh_token(db: impl MySqlExecutor<'_>, hash: &str) -> AppRe
     .await?)
 }
 
-pub async fn revoke_refresh_token(db: impl MySqlExecutor<'_>, id: i64, at: NaiveDateTime) -> AppResult<()> {
+pub async fn revoke_refresh_token(
+    db: impl MySqlExecutor<'_>,
+    id: i64,
+    at: NaiveDateTime,
+) -> AppResult<()> {
     sqlx::query("UPDATE refresh_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL")
         .bind(at)
         .bind(id)
@@ -379,32 +434,51 @@ pub async fn revoke_refresh_token(db: impl MySqlExecutor<'_>, id: i64, at: Naive
 /// 비밀번호 변경·재설정 시 사용자 토큰 전체 삭제 — 폐기로 남기면 옛 기기의 refresh 가
 /// 재사용 감지를 일으켜 새 세션까지 무효화된다 (PHP `deleteAllForUser`)
 pub async fn delete_all_refresh_tokens(db: impl MySqlExecutor<'_>, user_id: i64) -> AppResult<()> {
-    sqlx::query("DELETE FROM refresh_tokens WHERE user_id = ?").bind(user_id).execute(db).await?;
-    Ok(())
-}
-
-pub async fn revoke_all_refresh_tokens(db: impl MySqlExecutor<'_>, user_id: i64, at: NaiveDateTime) -> AppResult<()> {
-    sqlx::query("UPDATE refresh_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL")
-        .bind(at)
+    sqlx::query("DELETE FROM refresh_tokens WHERE user_id = ?")
         .bind(user_id)
         .execute(db)
         .await?;
+    Ok(())
+}
+
+pub async fn revoke_all_refresh_tokens(
+    db: impl MySqlExecutor<'_>,
+    user_id: i64,
+    at: NaiveDateTime,
+) -> AppResult<()> {
+    sqlx::query(
+        "UPDATE refresh_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
+    )
+    .bind(at)
+    .bind(user_id)
+    .execute(db)
+    .await?;
     Ok(())
 }
 
 // ───────────────────────────── email_verifications ─────────────────────────────
 
-pub async fn store_verification(db: impl MySqlExecutor<'_>, user_id: i64, hash: &str, expires_at: NaiveDateTime) -> AppResult<()> {
-    sqlx::query("INSERT INTO email_verifications (user_id, token_hash, expires_at) VALUES (?, ?, ?)")
-        .bind(user_id)
-        .bind(hash)
-        .bind(expires_at)
-        .execute(db)
-        .await?;
+pub async fn store_verification(
+    db: impl MySqlExecutor<'_>,
+    user_id: i64,
+    hash: &str,
+    expires_at: NaiveDateTime,
+) -> AppResult<()> {
+    sqlx::query(
+        "INSERT INTO email_verifications (user_id, token_hash, expires_at) VALUES (?, ?, ?)",
+    )
+    .bind(user_id)
+    .bind(hash)
+    .bind(expires_at)
+    .execute(db)
+    .await?;
     Ok(())
 }
 
-pub async fn find_verification(db: impl MySqlExecutor<'_>, hash: &str) -> AppResult<Option<TokenRow>> {
+pub async fn find_verification(
+    db: impl MySqlExecutor<'_>,
+    hash: &str,
+) -> AppResult<Option<TokenRow>> {
     Ok(sqlx::query_as::<_, TokenRow>(
         "SELECT id, user_id, expires_at, consumed_at AS closed_at FROM email_verifications
          WHERE token_hash = ?
@@ -415,16 +489,25 @@ pub async fn find_verification(db: impl MySqlExecutor<'_>, hash: &str) -> AppRes
     .await?)
 }
 
-pub async fn consume_verification(db: impl MySqlExecutor<'_>, id: i64, at: NaiveDateTime) -> AppResult<()> {
-    sqlx::query("UPDATE email_verifications SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL")
-        .bind(at)
-        .bind(id)
-        .execute(db)
-        .await?;
+pub async fn consume_verification(
+    db: impl MySqlExecutor<'_>,
+    id: i64,
+    at: NaiveDateTime,
+) -> AppResult<()> {
+    sqlx::query(
+        "UPDATE email_verifications SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL",
+    )
+    .bind(at)
+    .bind(id)
+    .execute(db)
+    .await?;
     Ok(())
 }
 
-pub async fn delete_unconsumed_verifications(db: impl MySqlExecutor<'_>, user_id: i64) -> AppResult<()> {
+pub async fn delete_unconsumed_verifications(
+    db: impl MySqlExecutor<'_>,
+    user_id: i64,
+) -> AppResult<()> {
     sqlx::query("DELETE FROM email_verifications WHERE user_id = ? AND consumed_at IS NULL")
         .bind(user_id)
         .execute(db)

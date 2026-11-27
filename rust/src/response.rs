@@ -14,8 +14,10 @@ pub fn json_response(payload: &Value, status: StatusCode) -> Response {
     let body = serde_json::to_vec(payload).unwrap_or_else(|_| b"null".to_vec());
     let mut res = Response::new(Body::from(body));
     *res.status_mut() = status;
-    res.headers_mut()
-        .insert(header::CONTENT_TYPE, HeaderValue::from_static(JSON_CONTENT_TYPE));
+    res.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static(JSON_CONTENT_TYPE),
+    );
     res
 }
 
@@ -39,7 +41,9 @@ pub fn ok(data: Value) -> Response {
 pub fn no_content() -> Response {
     let mut res = Response::new(Body::empty());
     *res.status_mut() = StatusCode::NO_CONTENT;
-    res.headers_mut()
-        .insert(header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=UTF-8"));
+    res.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=UTF-8"),
+    );
     res
 }

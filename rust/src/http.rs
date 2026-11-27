@@ -71,7 +71,10 @@ pub fn router(state: SharedState) -> Router {
         .route("/api/v1/users/verify/resend", post(user_resend))
         .route("/api/v1/users/{id}", get(admin_show).patch(admin_update))
         .route("/api/v1/logs", post(log_store))
-        .route("/api/v1/me", get(me_show).patch(me_update).delete(me_destroy))
+        .route(
+            "/api/v1/me",
+            get(me_show).patch(me_update).delete(me_destroy),
+        )
         .route("/api/v1/operators", post(operator_create))
         .fallback(|| async { AppError::not_found() })
         // 안쪽 → 바깥쪽 순으로 적용된다 (마지막 layer 가 가장 바깥)
@@ -80,15 +83,17 @@ pub fn router(state: SharedState) -> Router {
         .layer(middleware::from_fn_with_state(state.clone(), rate_limit))
         .layer(middleware::from_fn(cors))
         // 가장 바깥 — panic → 500 INTERNAL_ERROR (PHP ErrorHandler 의 Throwable 분기)
-        .layer(CatchPanicLayer::custom(|_: Box<dyn std::any::Any + Send + 'static>| {
-            let mut res = error_response(
-                "INTERNAL_ERROR",
-                crate::error::INTERNAL_MESSAGE,
-                StatusCode::INTERNAL_SERVER_ERROR,
-            );
-            res.extensions_mut().insert(ThrownError);
-            res
-        }))
+        .layer(CatchPanicLayer::custom(
+            |_: Box<dyn std::any::Any + Send + 'static>| {
+                let mut res = error_response(
+                    "INTERNAL_ERROR",
+                    crate::error::INTERNAL_MESSAGE,
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                );
+                res.extensions_mut().insert(ThrownError);
+                res
+            },
+        ))
         .layer(axum::extract::DefaultBodyLimit::max(8 * 1024 * 1024))
         .with_state(state)
 }
@@ -113,7 +118,10 @@ async fn cors(req: Request, next: Next) -> Response {
         "access-control-allow-methods",
         HeaderValue::from_static("GET, POST, PUT, PATCH, DELETE, OPTIONS"),
     );
-    h.insert("access-control-allow-headers", HeaderValue::from_static("Authorization, Content-Type"));
+    h.insert(
+        "access-control-allow-headers",
+        HeaderValue::from_static("Authorization, Content-Type"),
+    );
     h.insert("access-control-max-age", HeaderValue::from_static("86400"));
     res
 }
@@ -125,7 +133,9 @@ async fn rate_limit(State(state): State<SharedState>, req: Request, next: Next) 
         return next.run(req).await;
     }
     let method = req.method().as_str().to_string();
-    let sensitive = SENSITIVE_ROUTES.iter().any(|(m, p)| *m == method && *p == path);
+    let sensitive = SENSITIVE_ROUTES
+        .iter()
+        .any(|(m, p)| *m == method && *p == path);
     let (id, limit) = if sensitive {
         ("auth", state.config.rate_limit_auth)
     } else {
@@ -152,7 +162,10 @@ async fn rate_limit(State(state): State<SharedState>, req: Request, next: Next) 
 async fn jwt_auth(State(state): State<SharedState>, mut req: Request, next: Next) -> Response {
     let method = req.method().as_str();
     let path = req.uri().path();
-    if PUBLIC_ROUTES.iter().any(|(m, p)| *m == method && *p == path) {
+    if PUBLIC_ROUTES
+        .iter()
+        .any(|(m, p)| *m == method && *p == path)
+    {
         return next.run(req).await;
     }
     let header_line = header_line(req.headers(), header::AUTHORIZATION);
@@ -174,7 +187,9 @@ async fn method_not_allowed(req: Request, next: Next) -> Response {
         .strip_prefix("/api/v1/users/")
         .is_some_and(|rest| !rest.contains('/') && !is_digits(rest) && rest != "verify");
     let res = next.run(req).await;
-    if res.status() == StatusCode::METHOD_NOT_ALLOWED && res.extensions().get::<ThrownError>().is_none() {
+    if res.status() == StatusCode::METHOD_NOT_ALLOWED
+        && res.extensions().get::<ThrownError>().is_none()
+    {
         return if non_digit_user_path {
             AppError::not_found().into_response()
         } else {
@@ -227,8 +242,15 @@ impl<S: Send + Sync> FromRequest<S> for JsonInput {
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
         let is_post = req.method() == Method::POST;
         let content_type = header_line(req.headers(), header::CONTENT_TYPE);
-        let base_type = content_type.split(';').next().unwrap_or("").trim().to_lowercase();
-        let body = Bytes::from_request(req, state).await.map_err(IntoResponse::into_response)?;
+        let base_type = content_type
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_lowercase();
+        let body = Bytes::from_request(req, state)
+            .await
+            .map_err(IntoResponse::into_response)?;
 
         if is_post && base_type == "application/x-www-form-urlencoded" {
             return Ok(Self(form_to_input(&body)));
@@ -242,7 +264,11 @@ impl<S: Send + Sync> FromRequest<S> for JsonInput {
         }
         let input = match serde_json::from_slice::<Value>(&body) {
             Ok(Value::Object(map)) => map,
-            Ok(Value::Array(list)) => list.into_iter().enumerate().map(|(i, v)| (i.to_string(), v)).collect(),
+            Ok(Value::Array(list)) => list
+                .into_iter()
+                .enumerate()
+                .map(|(i, v)| (i.to_string(), v))
+                .collect(),
             _ => Map::new(),
         };
         Ok(Self(input))
@@ -277,10 +303,18 @@ async fn health() -> Response {
     ok(json!({ "service": APP_NAME, "version": APP_VERSION, "status": "ok" }))
 }
 
-fn raw_response(body: impl Into<Body>, content_type: &'static str, cache_control: &'static str) -> Response {
+fn raw_response(
+    body: impl Into<Body>,
+    content_type: &'static str,
+    cache_control: &'static str,
+) -> Response {
     let mut res = Response::new(body.into());
-    res.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
-    res.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static(cache_control));
+    res.headers_mut()
+        .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    res.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(cache_control),
+    );
     res
 }
 
@@ -325,19 +359,28 @@ fn require_refresh_token(input: &Input) -> AppResult<String> {
         .ok_or_else(|| AppError::validation(vec!["refresh_token 은 필수입니다.".into()]))
 }
 
-async fn token_refresh(State(state): State<SharedState>, JsonInput(input): JsonInput) -> AppResult<Response> {
+async fn token_refresh(
+    State(state): State<SharedState>,
+    JsonInput(input): JsonInput,
+) -> AppResult<Response> {
     let token = require_refresh_token(&input)?;
     let pair = service::refresh(&state, &token).await?;
     Ok(token_response(pair, StatusCode::OK))
 }
 
-async fn token_revoke(State(state): State<SharedState>, JsonInput(input): JsonInput) -> AppResult<Response> {
+async fn token_revoke(
+    State(state): State<SharedState>,
+    JsonInput(input): JsonInput,
+) -> AppResult<Response> {
     let token = require_refresh_token(&input)?;
     service::logout(&state, &token).await?;
     Ok(no_content())
 }
 
-async fn user_register(State(state): State<SharedState>, JsonInput(input): JsonInput) -> AppResult<Response> {
+async fn user_register(
+    State(state): State<SharedState>,
+    JsonInput(input): JsonInput,
+) -> AppResult<Response> {
     let dto = RegisterRequest::from_input(&input)?;
     let id = service::register(&state, &dto).await?;
     Ok(success(
@@ -353,33 +396,57 @@ fn require_string_field(input: &Input, field: &str) -> AppResult<String> {
         .ok_or_else(|| AppError::validation(vec![format!("{field} 은(는) 필수입니다.")]))
 }
 
-async fn user_verify(State(state): State<SharedState>, JsonInput(input): JsonInput) -> AppResult<Response> {
+async fn user_verify(
+    State(state): State<SharedState>,
+    JsonInput(input): JsonInput,
+) -> AppResult<Response> {
     let token = require_string_field(&input, "token")?;
     service::verify_email(&state, &token).await?;
     Ok(ok(json!({ "verified": true })))
 }
 
-async fn user_resend(State(state): State<SharedState>, JsonInput(input): JsonInput) -> AppResult<Response> {
+async fn user_resend(
+    State(state): State<SharedState>,
+    JsonInput(input): JsonInput,
+) -> AppResult<Response> {
     let email = require_string_field(&input, "email")?;
     let affiliation = input
         .get("affiliation")
         .and_then(Value::as_str)
         .and_then(Affiliation::try_from_str)
-        .ok_or_else(|| AppError::validation(vec!["affiliation 은(는) 필수이며 유효한 소속이어야 합니다.".into()]))?;
+        .ok_or_else(|| {
+            AppError::validation(vec![
+                "affiliation 은(는) 필수이며 유효한 소속이어야 합니다.".into(),
+            ])
+        })?;
     service::resend_verification(&state, &email, affiliation.as_str()).await?;
     // 이메일 존재 여부를 노출하지 않도록 항상 202
-    Ok(success(json!({ "message": "인증 메일을 발송했습니다." }), None, StatusCode::ACCEPTED))
+    Ok(success(
+        json!({ "message": "인증 메일을 발송했습니다." }),
+        None,
+        StatusCode::ACCEPTED,
+    ))
 }
 
-async fn log_store(State(state): State<SharedState>, JsonInput(input): JsonInput) -> AppResult<Response> {
+async fn log_store(
+    State(state): State<SharedState>,
+    JsonInput(input): JsonInput,
+) -> AppResult<Response> {
     let dto = LogRequest::from_input(&input)?;
     service::record_log(&state, &dto).await?;
-    Ok(success(json!({ "accepted": true }), None, StatusCode::ACCEPTED))
+    Ok(success(
+        json!({ "accepted": true }),
+        None,
+        StatusCode::ACCEPTED,
+    ))
 }
 
 // ───────────────────────────── 핸들러: 보호 ─────────────────────────────
 
-async fn me_show(State(state): State<SharedState>, Extension(auth): Extension<AuthContext>) -> AppResult<Response> {
+async fn me_show(
+    State(state): State<SharedState>,
+    Extension(auth): Extension<AuthContext>,
+) -> AppResult<Response> {
     Ok(ok(service::me(&state, auth.user_id).await?))
 }
 
@@ -429,7 +496,11 @@ async fn admin_index(
     let params = form_to_input(query.unwrap_or_default().as_bytes());
     let q = UserListQuery::from_params(&params)?;
     let (items, total) = service::list_users(&state, &q, auth.user_id).await?;
-    Ok(success(Value::Array(items), Some(service::pagination_meta(&q, total)), StatusCode::OK))
+    Ok(success(
+        Value::Array(items),
+        Some(service::pagination_meta(&q, total)),
+        StatusCode::OK,
+    ))
 }
 
 /// `{id:\d+}` — 숫자가 아니면 라우트 불일치(404). (int) 캐스트처럼 범위 초과는 포화한다.

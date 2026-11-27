@@ -79,14 +79,22 @@ impl Config {
                 return PathBuf::new();
             }
             let p = PathBuf::from(raw);
-            if p.is_absolute() { p } else { base_dir.join(p) }
+            if p.is_absolute() {
+                p
+            } else {
+                base_dir.join(p)
+            }
         };
         let jwt_private_key_path = resolve(&private_raw);
         let jwt_public_key_path = resolve(&public_raw);
         if jwt_algo.is_asymmetric() {
-            for (label, path) in [("개인키", &jwt_private_key_path), ("공개키", &jwt_public_key_path)] {
-                std::fs::metadata(path)
-                    .with_context(|| format!("JWT {label} 파일을 읽을 수 없습니다: {}", path.display()))?;
+            for (label, path) in [
+                ("개인키", &jwt_private_key_path),
+                ("공개키", &jwt_public_key_path),
+            ] {
+                std::fs::metadata(path).with_context(|| {
+                    format!("JWT {label} 파일을 읽을 수 없습니다: {}", path.display())
+                })?;
             }
         }
 

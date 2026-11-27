@@ -46,7 +46,8 @@ impl Queue {
 
 /// PHP `json_encode($v)` 기본 플래그 재현 — 비ASCII 는 `\uXXXX`, `/` 는 `\/` 로 이스케이프
 pub fn php_json_encode(v: &Value) -> String {
-    let raw = serde_json::to_string(&crate::php::php_normalize(v.clone())).unwrap_or_else(|_| "null".into());
+    let raw = serde_json::to_string(&crate::php::php_normalize(v.clone()))
+        .unwrap_or_else(|_| "null".into());
     let mut out = String::with_capacity(raw.len() + 16);
     for ch in raw.chars() {
         match ch {
@@ -116,7 +117,10 @@ return {accepted, tostring(wait)}
 "#;
 
 pub enum RateLimiter {
-    Redis { conn: ConnectionManager, script: Box<redis::Script> },
+    Redis {
+        conn: ConnectionManager,
+        script: Box<redis::Script>,
+    },
     Memory(Mutex<HashMap<String, Window>>),
 }
 
@@ -130,7 +134,10 @@ pub const RATE_INTERVAL: f64 = 60.0;
 
 impl RateLimiter {
     pub fn redis(conn: ConnectionManager) -> Self {
-        Self::Redis { conn, script: Box::new(redis::Script::new(SLIDING_WINDOW_LUA)) }
+        Self::Redis {
+            conn,
+            script: Box::new(redis::Script::new(SLIDING_WINDOW_LUA)),
+        }
     }
 
     /// 토큰 1개 소비 — 거절이면 Some(Retry-After 초)
@@ -150,8 +157,14 @@ impl RateLimiter {
                 (accepted == 1, wait.parse::<f64>().unwrap_or(0.0))
             }
             Self::Memory(store) => {
-                let mut map = store.lock().map_err(|_| AppError::Internal("limiter lock poisoned".into()))?;
-                let w = map.entry(format!("{id}:{ip}")).or_insert(Window { end: now + RATE_INTERVAL, hits: 0, prev: 0 });
+                let mut map = store
+                    .lock()
+                    .map_err(|_| AppError::Internal("limiter lock poisoned".into()))?;
+                let w = map.entry(format!("{id}:{ip}")).or_insert(Window {
+                    end: now + RATE_INTERVAL,
+                    hits: 0,
+                    prev: 0,
+                });
                 memory_consume(w, now, limit)
             }
         };
@@ -211,8 +224,10 @@ fn now_f64() -> f64 {
 pub async fn password_hash(password: String) -> AppResult<String> {
     tokio::task::spawn_blocking(move || {
         use argon2::password_hash::{rand_core::OsRng, PasswordHasher, SaltString};
-        let params = argon2::Params::new(65_536, 4, 1, Some(32)).map_err(|e| AppError::Internal(e.to_string()))?;
-        let hasher = argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
+        let params = argon2::Params::new(65_536, 4, 1, Some(32))
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+        let hasher =
+            argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
         let salt = SaltString::generate(&mut OsRng);
         hasher
             .hash_password(password.as_bytes(), &salt)
@@ -228,9 +243,11 @@ pub async fn password_verify(password: String, hash: String) -> AppResult<bool> 
     tokio::task::spawn_blocking(move || {
         if hash.starts_with("$argon2") {
             use argon2::password_hash::{PasswordHash, PasswordVerifier};
-            return PasswordHash::new(&hash)
-                .ok()
-                .is_some_and(|parsed| argon2::Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok());
+            return PasswordHash::new(&hash).ok().is_some_and(|parsed| {
+                argon2::Argon2::default()
+                    .verify_password(password.as_bytes(), &parsed)
+                    .is_ok()
+            });
         }
         if hash.starts_with("$2") {
             return bcrypt::verify(password.as_bytes(), &hash).unwrap_or(false);
@@ -248,12 +265,19 @@ mod tests {
 
     #[test]
     fn php_json_encode_matches_php_defaults() {
-        assert_eq!(php_json_encode(&json!({"a": "한/b", "c": {}})), "{\"a\":\"\\ud55c\\/b\",\"c\":[]}");
+        assert_eq!(
+            php_json_encode(&json!({"a": "한/b", "c": {}})),
+            "{\"a\":\"\\ud55c\\/b\",\"c\":[]}"
+        );
     }
 
     #[test]
     fn memory_window_rejects_after_limit() {
-        let mut w = Window { end: 1000.0 + RATE_INTERVAL, hits: 0, prev: 0 };
+        let mut w = Window {
+            end: 1000.0 + RATE_INTERVAL,
+            hits: 0,
+            prev: 0,
+        };
         for _ in 0..3 {
             assert!(memory_consume(&mut w, 1000.5, 3).0);
         }

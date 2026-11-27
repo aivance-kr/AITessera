@@ -42,7 +42,8 @@ async fn main() -> anyhow::Result<()> {
 
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,sqlx=warn".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info,sqlx=warn".into()),
         )
         .init();
 
@@ -67,9 +68,15 @@ async fn main() -> anyhow::Result<()> {
         .connect_lazy_with(connect);
 
     let (queue, limiter) = if config.is_testing() {
-        (Queue::Memory(Default::default()), RateLimiter::Memory(Default::default()))
+        (
+            Queue::Memory(Default::default()),
+            RateLimiter::Memory(Default::default()),
+        )
     } else {
-        let client = redis::Client::open(format!("redis://{}:{}/", config.redis_host, config.redis_port))?;
+        let client = redis::Client::open(format!(
+            "redis://{}:{}/",
+            config.redis_host, config.redis_port
+        ))?;
         let conn = redis::aio::ConnectionManager::new(client)
             .await
             .context("Redis 연결에 실패했습니다.")?;
@@ -78,7 +85,13 @@ async fn main() -> anyhow::Result<()> {
 
     let jwt = jwt::JwtService::new(&config)?;
     let bind = config.bind_addr.clone();
-    let state = Arc::new(AppState { config, db, jwt, queue, limiter });
+    let state = Arc::new(AppState {
+        config,
+        db,
+        jwt,
+        queue,
+        limiter,
+    });
 
     // 끝 슬래시 정규화는 라우팅 전에 적용되도록 Router 바깥에 둔다
     let app = NormalizePathLayer::trim_trailing_slash().layer(http::router(state));

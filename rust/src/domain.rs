@@ -45,7 +45,11 @@ impl Affiliation {
 
     /// DB 값 — 알 수 없는 값은 PHP `Affiliation::from()` 처럼 오류
     pub fn from_db(s: &str) -> AppResult<Self> {
-        Self::try_from_str(s).ok_or_else(|| AppError::Internal(format!("\"{s}\" is not a valid backing value for enum App\\Domain\\Affiliation")))
+        Self::try_from_str(s).ok_or_else(|| {
+            AppError::Internal(format!(
+                "\"{s}\" is not a valid backing value for enum App\\Domain\\Affiliation"
+            ))
+        })
     }
 }
 
@@ -72,7 +76,11 @@ impl UserRole {
     }
 
     pub fn from_db(v: i64) -> AppResult<Self> {
-        Self::try_from_int(v).ok_or_else(|| AppError::Internal(format!("{v} is not a valid backing value for enum App\\Domain\\UserRole")))
+        Self::try_from_int(v).ok_or_else(|| {
+            AppError::Internal(format!(
+                "{v} is not a valid backing value for enum App\\Domain\\UserRole"
+            ))
+        })
     }
 }
 
@@ -110,11 +118,19 @@ fn profile_fields(aff: Affiliation) -> &'static [(&'static str, Rule, &'static s
         Affiliation::Aicura => &[
             ("age", positive_int, "age 는 양의 정수여야 합니다."),
             ("sex", string_type, "sex 는 문자열이어야 합니다."),
-            ("where_from", string_type, "where_from 는 문자열이어야 합니다."),
+            (
+                "where_from",
+                string_type,
+                "where_from 는 문자열이어야 합니다.",
+            ),
         ],
         Affiliation::Aicopia => &[
             ("gender", string_type, "gender 는 문자열이어야 합니다."),
-            ("birthday", php::valid_ymd, "birthday 는 YYYY-MM-DD 형식이어야 합니다."),
+            (
+                "birthday",
+                php::valid_ymd,
+                "birthday 는 YYYY-MM-DD 형식이어야 합니다.",
+            ),
             ("zipcode", string_type, "zipcode 는 문자열이어야 합니다."),
             ("address1", string_type, "address1 는 문자열이어야 합니다."),
             ("address2", string_type, "address2 는 문자열이어야 합니다."),
@@ -131,7 +147,10 @@ pub fn validate_profile(aff: Affiliation, profile: &Value) -> Vec<String> {
         Value::Object(map) => {
             for key in map.keys() {
                 if !fields.iter().any(|(name, _, _)| name == key) {
-                    errors.push(format!("'{key}' 은(는) {} 소속에서 허용되지 않는 프로필 항목입니다.", aff.as_str()));
+                    errors.push(format!(
+                        "'{key}' 은(는) {} 소속에서 허용되지 않는 프로필 항목입니다.",
+                        aff.as_str()
+                    ));
                 }
             }
             for (name, rule, message) in fields {
@@ -145,7 +164,10 @@ pub fn validate_profile(aff: Affiliation, profile: &Value) -> Vec<String> {
         // JSON 배열(리스트)은 PHP 에서 정수 키 배열 — 모든 키가 허용되지 않은 항목
         Value::Array(list) => {
             for i in 0..list.len() {
-                errors.push(format!("'{i}' 은(는) {} 소속에서 허용되지 않는 프로필 항목입니다.", aff.as_str()));
+                errors.push(format!(
+                    "'{i}' 은(는) {} 소속에서 허용되지 않는 프로필 항목입니다.",
+                    aff.as_str()
+                ));
             }
         }
         _ => {}
@@ -187,7 +209,10 @@ fn key_rule(
 }
 
 fn c(pass: bool, message: &str) -> Check {
-    Check { pass, message: message.to_string() }
+    Check {
+        pass,
+        message: message.to_string(),
+    }
 }
 
 const IN_AFFILIATIONS: &str =
@@ -197,7 +222,10 @@ fn email_rule(errors: &mut Vec<String>, data: &Input) {
     key_rule(errors, data, "email", true, false, |v| {
         vec![
             c(v.is_string(), "must be of type string"),
-            c(v.as_str().is_some_and(php::valid_email), "must be valid email"),
+            c(
+                v.as_str().is_some_and(php::valid_email),
+                "must be valid email",
+            ),
         ]
     });
 }
@@ -210,16 +238,23 @@ fn affiliation_rule(errors: &mut Vec<String>, data: &Input) {
 
 fn non_empty_string_rule(errors: &mut Vec<String>, data: &Input, name: &str) {
     key_rule(errors, data, name, true, false, |v| {
-        vec![c(v.is_string(), "must be of type string"), c(php::not_empty(v), "must not be empty")]
+        vec![
+            c(v.is_string(), "must be of type string"),
+            c(php::not_empty(v), "must not be empty"),
+        ]
     });
 }
 
 fn optional_string_rule(errors: &mut Vec<String>, data: &Input, name: &str) {
-    key_rule(errors, data, name, false, true, |v| vec![c(v.is_string(), "must be of type string")]);
+    key_rule(errors, data, name, false, true, |v| {
+        vec![c(v.is_string(), "must be of type string")]
+    });
 }
 
 fn true_val_rule(errors: &mut Vec<String>, data: &Input, name: &str) {
-    key_rule(errors, data, name, true, false, |v| vec![c(php::true_val(v), "must evaluate to `true`")]);
+    key_rule(errors, data, name, true, false, |v| {
+        vec![c(php::true_val(v), "must evaluate to `true`")]
+    });
 }
 
 /// `(string) $data[$key]` — 검증을 통과한 스칼라 값의 문자열화
@@ -242,14 +277,22 @@ fn profile_of(errors: &mut Vec<String>, data: &Input) -> Value {
         None | Some(Value::Null) => Value::Array(vec![]),
         Some(v) => v.clone(),
     };
-    if let Some(aff) = data.get("affiliation").and_then(Value::as_str).and_then(Affiliation::try_from_str) {
+    if let Some(aff) = data
+        .get("affiliation")
+        .and_then(Value::as_str)
+        .and_then(Affiliation::try_from_str)
+    {
         if profile.is_object() || profile.is_array() {
             errors.extend(validate_profile(aff, &profile));
         } else {
             errors.push("profile 은(는) 객체 형식이어야 합니다.".into());
         }
     }
-    if profile.is_object() || profile.is_array() { profile } else { Value::Array(vec![]) }
+    if profile.is_object() || profile.is_array() {
+        profile
+    } else {
+        Value::Array(vec![])
+    }
 }
 
 fn password_rule(errors: &mut Vec<String>, data: &Input) {
@@ -399,7 +442,10 @@ impl LogRequest {
         key_rule(&mut errors, data, "user_id", false, true, |v| {
             vec![
                 c(php::is_int(v).is_some(), "must be of type integer"),
-                c(php::numeric_f64(v).is_some_and(|f| f > 0.0), "must be positive"),
+                c(
+                    php::numeric_f64(v).is_some_and(|f| f > 0.0),
+                    "must be positive",
+                ),
             ]
         });
         key_rule(&mut errors, data, "logged_at", false, true, |v| {
@@ -446,15 +492,24 @@ pub struct PatchCommon {
 
 impl PatchCommon {
     fn parse(data: &Input, errors: &mut Vec<String>) -> Self {
-        let mut out = Self { profile: Value::Array(vec![]), ..Default::default() };
+        let mut out = Self {
+            profile: Value::Array(vec![]),
+            ..Default::default()
+        };
         for (field, slot) in [("name", 0u8), ("contact", 1u8)] {
             if let Some(v) = data.get(field) {
                 out.provided.push(field);
                 match v {
                     Value::String(s) if !php_trim(s).is_empty() => {
-                        if slot == 0 { out.name = Some(s.clone()) } else { out.contact = Some(s.clone()) }
+                        if slot == 0 {
+                            out.name = Some(s.clone())
+                        } else {
+                            out.contact = Some(s.clone())
+                        }
                     }
-                    _ => errors.push(format!("{field} 은(는) 비어 있지 않은 문자열이어야 합니다.")),
+                    _ => errors.push(format!(
+                        "{field} 은(는) 비어 있지 않은 문자열이어야 합니다."
+                    )),
                 }
             }
         }
@@ -503,7 +558,9 @@ impl UpdateMeRequest {
             }
             match php::non_empty_str(data.get("current_password")) {
                 Some(cur) => current_password = Some(cur.to_string()),
-                None => errors.push("current_password 는 비밀번호 변경 시 반드시 필요합니다.".into()),
+                None => {
+                    errors.push("current_password 는 비밀번호 변경 시 반드시 필요합니다.".into())
+                }
             }
         }
         if common.provided.is_empty() {
@@ -512,7 +569,11 @@ impl UpdateMeRequest {
         if !errors.is_empty() {
             return Err(AppError::validation(errors));
         }
-        Ok(Self { common, password, current_password })
+        Ok(Self {
+            common,
+            password,
+            current_password,
+        })
     }
 }
 
@@ -558,7 +619,12 @@ impl UpdateUserRequest {
         if !errors.is_empty() {
             return Err(AppError::validation(errors));
         }
-        Ok(Self { common, role, is_active, password })
+        Ok(Self {
+            common,
+            role,
+            is_active,
+            password,
+        })
     }
 }
 
@@ -598,16 +664,26 @@ impl UserListQuery {
     pub fn from_params(params: &Input) -> AppResult<Self> {
         let mut errors = Vec::new();
         let positive = |v: Option<&Value>, default: i64| -> i64 {
-            v.and_then(php::numeric_to_int).filter(|i| *i >= 1).unwrap_or(default)
+            v.and_then(php::numeric_to_int)
+                .filter(|i| *i >= 1)
+                .unwrap_or(default)
         };
         let page = positive(params.get("page"), 1);
         let per_page = positive(params.get("per_page"), DEFAULT_PER_PAGE).min(MAX_PER_PAGE);
 
-        let is_set = |k: &str| params.get(k).is_some_and(|v| !v.is_null() && v.as_str() != Some(""));
+        let is_set = |k: &str| {
+            params
+                .get(k)
+                .is_some_and(|v| !v.is_null() && v.as_str() != Some(""))
+        };
 
         let mut role = None;
         if is_set("role") {
-            match params.get("role").and_then(php::numeric_to_int).and_then(UserRole::try_from_int) {
+            match params
+                .get("role")
+                .and_then(php::numeric_to_int)
+                .and_then(UserRole::try_from_int)
+            {
                 Some(r) => role = Some(r),
                 None => errors.push("role 필터 값이 올바르지 않습니다.".into()),
             }
@@ -628,7 +704,11 @@ impl UserListQuery {
 
         let mut sort_column = "created_at";
         let mut sort_direction = "DESC";
-        if let Some(raw) = params.get("sort").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+        if let Some(raw) = params
+            .get("sort")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+        {
             let (direction, field) = match raw.strip_prefix('-') {
                 Some(rest) => ("DESC", rest),
                 None => ("ASC", raw),
@@ -651,7 +731,15 @@ impl UserListQuery {
         if !errors.is_empty() {
             return Err(AppError::validation(errors));
         }
-        Ok(Self { page, per_page, role, is_active, search, sort_column, sort_direction })
+        Ok(Self {
+            page,
+            per_page,
+            role,
+            is_active,
+            search,
+            sort_column,
+            sort_direction,
+        })
     }
 
     pub fn offset(&self) -> i64 {

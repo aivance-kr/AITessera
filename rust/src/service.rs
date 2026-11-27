@@ -80,7 +80,9 @@ fn nullable_string(v: Option<String>) -> Value {
 /// `Rows::decodeJsonObject` + `$profile === [] ? null : $profile`
 fn profile_value(v: Option<Value>) -> Value {
     match v {
-        Some(v @ (Value::Object(_) | Value::Array(_))) if !php::is_empty_array(&v) => php::php_normalize(v),
+        Some(v @ (Value::Object(_) | Value::Array(_))) if !php::is_empty_array(&v) => {
+            php::php_normalize(v)
+        }
         _ => Value::Null,
     }
 }
@@ -129,7 +131,12 @@ async fn login_inner(state: &AppState, req: LoginRequest) -> AppResult<TokenPair
     Ok(pair)
 }
 
-async fn record_login_event(state: &AppState, email: &str, ctx: &LoginContext, success: bool) -> AppResult<()> {
+async fn record_login_event(
+    state: &AppState,
+    email: &str,
+    ctx: &LoginContext,
+    success: bool,
+) -> AppResult<()> {
     state
         .queue
         .push(
@@ -182,7 +189,9 @@ async fn rotate_locked(
     // 폐기된 토큰 재사용 → 탈취 간주, 사용자 전체 토큰 무효화
     if token.closed_at.is_some() {
         repo::revoke_all_refresh_tokens(&mut **tx, token.user_id as i64, now).await?;
-        return Err(AppError::InvalidToken("재사용이 감지되어 모든 세션이 무효화되었습니다.".into()));
+        return Err(AppError::InvalidToken(
+            "재사용이 감지되어 모든 세션이 무효화되었습니다.".into(),
+        ));
     }
     if token.expires_at <= now {
         return Err(AppError::token_expired());
@@ -217,11 +226,17 @@ async fn issue_pair(
     affiliation: Affiliation,
     role: UserRole,
 ) -> AppResult<TokenPair> {
-    let access = state.jwt.issue_access_token(user_id, affiliation.as_str(), role)?;
+    let access = state
+        .jwt
+        .issue_access_token(user_id, affiliation.as_str(), role)?;
     let refresh = random_token();
     let expires_at = state.now() + Duration::seconds(state.config.jwt_refresh_ttl);
     repo::store_refresh_token(db, user_id, &sha256_hex(&refresh), expires_at).await?;
-    Ok(TokenPair { access_token: access, expires_in: state.jwt.access_ttl(), refresh_token: refresh })
+    Ok(TokenPair {
+        access_token: access,
+        expires_in: state.jwt.access_ttl(),
+        refresh_token: refresh,
+    })
 }
 
 // ───────────────────────────── UserService ─────────────────────────────
@@ -249,7 +264,10 @@ pub async fn me(state: &AppState, user_id: i64) -> AppResult<Value> {
 }
 
 /// 공통 PATCH 필드 → UPDATE 컬럼 (name·contact·company·profile)
-fn common_fields(common: &PatchCommon, affiliation: Affiliation) -> AppResult<Vec<(&'static str, FieldValue)>> {
+fn common_fields(
+    common: &PatchCommon,
+    affiliation: Affiliation,
+) -> AppResult<Vec<(&'static str, FieldValue)>> {
     let mut fields = Vec::new();
     if let Some(name) = &common.name {
         fields.push(("name", FieldValue::Str(Some(name.clone()))));
@@ -308,14 +326,18 @@ pub async fn update_me(state: &AppState, req: UpdateMeRequest, user_id: i64) -> 
     if req.password.is_some() {
         // 비밀번호 변경은 새 세션을 발급하므로, 정지된 계정이 남은 Access 토큰으로 세션을 되살리지 못하게 막는다
         if !user.is_active {
-            return Err(AppError::Forbidden("비활성화된 계정은 이 작업을 수행할 수 없습니다.".into()));
+            return Err(AppError::Forbidden(
+                "비활성화된 계정은 이 작업을 수행할 수 없습니다.".into(),
+            ));
         }
         let ok = match &req.current_password {
             Some(current) => password_verify(current.clone(), user.password_hash.clone()).await?,
             None => false,
         };
         if !ok {
-            return Err(AppError::InvalidCredentials("현재 비밀번호가 일치하지 않습니다.".into()));
+            return Err(AppError::InvalidCredentials(
+                "현재 비밀번호가 일치하지 않습니다.".into(),
+            ));
         }
     }
     let fields = common_fields(&req.common, user.affiliation)?;
@@ -352,7 +374,9 @@ pub async fn withdraw(state: &AppState, user_id: i64, password: String) -> AppRe
         .ok_or_else(|| AppError::NotFound("사용자를 찾을 수 없습니다.".into()))?;
     let user = User::from_row(row)?;
     if !password_verify(password, user.password_hash).await? {
-        return Err(AppError::InvalidCredentials("비밀번호가 일치하지 않습니다.".into()));
+        return Err(AppError::InvalidCredentials(
+            "비밀번호가 일치하지 않습니다.".into(),
+        ));
     }
     let now = state.now();
     let mut tx = state.db.begin().await?;
@@ -394,18 +418,26 @@ pub async fn register(state: &AppState, req: &RegisterRequest) -> AppResult<i64>
     Ok(new_id)
 }
 
-pub async fn create_operator_account(state: &AppState, req: &CreateOperatorRequest, creator_id: i64) -> AppResult<i64> {
+pub async fn create_operator_account(
+    state: &AppState,
+    req: &CreateOperatorRequest,
+    creator_id: i64,
+) -> AppResult<i64> {
     let creator = repo::find_by_id(&state.db, creator_id)
         .await?
         .ok_or_else(|| AppError::NotFound("생성 요청자를 찾을 수 없습니다.".into()))?;
     let creator = User::from_row(creator)?;
     // 정지된 계정은 토큰이 아직 유효해도 신규 계정을 만들 수 없다
     if !creator.is_active {
-        return Err(AppError::Forbidden("비활성화된 계정은 이 작업을 수행할 수 없습니다.".into()));
+        return Err(AppError::Forbidden(
+            "비활성화된 계정은 이 작업을 수행할 수 없습니다.".into(),
+        ));
     }
     // 소속 스코핑 — 자기 소속 계정만 생성 가능
     if creator.affiliation != req.affiliation {
-        return Err(AppError::Forbidden("본인 소속의 계정만 생성할 수 있습니다.".into()));
+        return Err(AppError::Forbidden(
+            "본인 소속의 계정만 생성할 수 있습니다.".into(),
+        ));
     }
     if repo::email_exists(&state.db, &req.email, req.affiliation.as_str()).await? {
         return Err(AppError::AlreadyExists("이미 가입된 이메일입니다.".into()));
@@ -439,7 +471,9 @@ pub async fn verify_email(state: &AppState, token: &str) -> AppResult<()> {
         .await?
         .ok_or_else(AppError::invalid_token)?;
     if v.closed_at.is_some() {
-        return Err(AppError::InvalidToken("이미 사용된 인증 토큰입니다.".into()));
+        return Err(AppError::InvalidToken(
+            "이미 사용된 인증 토큰입니다.".into(),
+        ));
     }
     let now = state.now();
     if v.expires_at <= now {
@@ -452,7 +486,11 @@ pub async fn verify_email(state: &AppState, token: &str) -> AppResult<()> {
     Ok(())
 }
 
-pub async fn resend_verification(state: &AppState, email: &str, affiliation: &str) -> AppResult<()> {
+pub async fn resend_verification(
+    state: &AppState,
+    email: &str,
+    affiliation: &str,
+) -> AppResult<()> {
     let Some(row) = repo::find_active_by_email(&state.db, email, affiliation).await? else {
         return Ok(());
     };
@@ -472,7 +510,10 @@ pub async fn resend_verification(state: &AppState, email: &str, affiliation: &st
 async fn enqueue_verification_email(state: &AppState, email: &str, token: &str) -> AppResult<()> {
     state
         .queue
-        .push(MAIL_QUEUE, &json!({ "type": "email_verification", "to": email, "token": token }))
+        .push(
+            MAIL_QUEUE,
+            &json!({ "type": "email_verification", "to": email, "token": token }),
+        )
         .await
 }
 
@@ -519,12 +560,18 @@ async fn require_active_operator(state: &AppState, operator_id: i64) -> AppResul
         .ok_or_else(|| AppError::NotFound("요청자를 찾을 수 없습니다.".into()))?;
     let operator = User::from_row(row)?;
     if !operator.is_active {
-        return Err(AppError::Forbidden("비활성화된 계정은 이 작업을 수행할 수 없습니다.".into()));
+        return Err(AppError::Forbidden(
+            "비활성화된 계정은 이 작업을 수행할 수 없습니다.".into(),
+        ));
     }
     Ok(operator)
 }
 
-pub async fn list_users(state: &AppState, query: &UserListQuery, operator_id: i64) -> AppResult<(Vec<Value>, i64)> {
+pub async fn list_users(
+    state: &AppState,
+    query: &UserListQuery,
+    operator_id: i64,
+) -> AppResult<(Vec<Value>, i64)> {
     let operator = require_active_operator(state, operator_id).await?;
     let filter = ListFilter {
         affiliation: operator.affiliation.as_str(),
@@ -542,7 +589,10 @@ pub async fn list_users(state: &AppState, query: &UserListQuery, operator_id: i6
     )
     .await?;
     let total = repo::count_by_affiliation(&state.db, &filter).await?;
-    let items = rows.into_iter().map(list_item).collect::<AppResult<Vec<_>>>()?;
+    let items = rows
+        .into_iter()
+        .map(list_item)
+        .collect::<AppResult<Vec<_>>>()?;
     Ok((items, total))
 }
 
@@ -554,7 +604,12 @@ pub async fn get_user(state: &AppState, target_id: i64, operator_id: i64) -> App
     Ok(manage_view(row)?.1)
 }
 
-pub async fn update_user(state: &AppState, req: UpdateUserRequest, target_id: i64, operator_id: i64) -> AppResult<()> {
+pub async fn update_user(
+    state: &AppState,
+    req: UpdateUserRequest,
+    target_id: i64,
+    operator_id: i64,
+) -> AppResult<()> {
     let operator = require_active_operator(state, operator_id).await?;
     let row = repo::find_manageable_by_id(&state.db, target_id, operator.affiliation.as_str())
         .await?
@@ -562,10 +617,14 @@ pub async fn update_user(state: &AppState, req: UpdateUserRequest, target_id: i6
     let (target_affiliation, _) = manage_view(row)?;
     if target_id == operator_id {
         if req.common.has("role") {
-            return Err(AppError::Forbidden("본인 계정의 회원구분은 변경할 수 없습니다.".into()));
+            return Err(AppError::Forbidden(
+                "본인 계정의 회원구분은 변경할 수 없습니다.".into(),
+            ));
         }
         if req.common.has("is_active") {
-            return Err(AppError::Forbidden("본인 계정의 활성 상태는 변경할 수 없습니다.".into()));
+            return Err(AppError::Forbidden(
+                "본인 계정의 활성 상태는 변경할 수 없습니다.".into(),
+            ));
         }
     }
     let mut fields = common_fields(&req.common, target_affiliation)?;

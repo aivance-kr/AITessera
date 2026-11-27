@@ -539,7 +539,7 @@
                     "Users"
                 ],
                 "summary": "본인 정보 수정",
-                "description": "토큰의 사용자 본인 정보를 부분 수정한다. 이름·연락처·회사·프로필·비밀번호만 변경 가능하다(회원구분·활성상태·이메일 제외). 비밀번호 변경 시 `current_password` 를 함께 보내 본인 확인을 거친다.",
+                "description": "토큰의 사용자 본인 정보를 부분 수정한다. 이름·연락처·회사·프로필·비밀번호만 변경 가능하다(회원구분·활성상태·이메일 제외). 비밀번호 변경 시 `current_password` 를 함께 보내 본인 확인을 거친다. 비밀번호를 변경하면 다른 기기의 세션(Refresh 토큰)이 모두 무효화되고, 현재 기기용 새 토큰 쌍이 응답의 `data.tokens` 로 함께 반환된다.",
                 "operationId": "7aff50f0108204d929a3bf4636190280",
                 "requestBody": {
                     "required": true,
@@ -553,11 +553,11 @@
                 },
                 "responses": {
                     "200": {
-                        "description": "수정 후 사용자 프로필",
+                        "description": "수정 후 사용자 프로필(비밀번호 변경 시 `data.tokens` 포함)",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/MeResponse"
+                                    "$ref": "#/components/schemas/UpdateMeResponse"
                                 }
                             }
                         }
@@ -1518,6 +1518,45 @@
                     }
                 },
                 "type": "object"
+            },
+            "UpdateMeResponse": {
+                "description": "수정 후 사용자 프로필. 비밀번호 변경 시 다른 기기 세션은 끊기고 현재 기기용 새 토큰 쌍이 `data.tokens` 로 반환된다.",
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/MeResponse"
+                    },
+                    {
+                        "properties": {
+                            "data": {
+                                "properties": {
+                                    "tokens": {
+                                        "description": "비밀번호를 변경한 경우에만 포함 — 기존 토큰은 폐기되므로 이 값으로 교체한다",
+                                        "properties": {
+                                            "access_token": {
+                                                "description": "OpenAPI 컴포넌트 — 본인 정보 수정 응답.\n\nMeResponse 와 같은 프로필에, 비밀번호를 변경한 경우에만 새 토큰 쌍(`tokens`)이 추가된다.",
+                                                "type": "string"
+                                            },
+                                            "token_type": {
+                                                "type": "string",
+                                                "example": "Bearer"
+                                            },
+                                            "expires_in": {
+                                                "type": "integer",
+                                                "example": 900
+                                            },
+                                            "refresh_token": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "type": "object"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        },
+                        "type": "object"
+                    }
+                ]
             },
             "UpdateUserRequest": {
                 "description": "회원 수정 정보. 제공한 필드만 반영된다.",

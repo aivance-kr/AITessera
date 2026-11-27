@@ -350,6 +350,13 @@ pub async fn revoke_refresh_token(db: impl MySqlExecutor<'_>, id: i64, at: Naive
     Ok(())
 }
 
+/// 비밀번호 변경·재설정 시 사용자 토큰 전체 삭제 — 폐기로 남기면 옛 기기의 refresh 가
+/// 재사용 감지를 일으켜 새 세션까지 무효화된다 (PHP `deleteAllForUser`)
+pub async fn delete_all_refresh_tokens(db: impl MySqlExecutor<'_>, user_id: i64) -> AppResult<()> {
+    sqlx::query("DELETE FROM refresh_tokens WHERE user_id = ?").bind(user_id).execute(db).await?;
+    Ok(())
+}
+
 pub async fn revoke_all_refresh_tokens(db: impl MySqlExecutor<'_>, user_id: i64, at: NaiveDateTime) -> AppResult<()> {
     sqlx::query("UPDATE refresh_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL")
         .bind(at)

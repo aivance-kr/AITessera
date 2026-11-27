@@ -301,16 +301,7 @@ async fn jwks(State(state): State<SharedState>) -> Response {
 }
 
 fn token_response(pair: TokenPair, status: StatusCode) -> Response {
-    success(
-        json!({
-            "access_token": pair.access_token,
-            "token_type": "Bearer",
-            "expires_in": pair.expires_in,
-            "refresh_token": pair.refresh_token,
-        }),
-        None,
-        status,
-    )
+    success(pair.to_json(), None, status)
 }
 
 async fn token_issue(

@@ -64,4 +64,10 @@ final readonly class RefreshTokenRepository implements RefreshTokenRepositoryInt
             'user_id' => $userId,
         ]);
     }
+
+    public function deleteAllForUser(int $userId): void
+    {
+        $stmt = $this->db->pdo()->prepare('DELETE FROM refresh_tokens WHERE user_id = :user_id');
+        $stmt->execute(['user_id' => $userId]);
+    }
 }

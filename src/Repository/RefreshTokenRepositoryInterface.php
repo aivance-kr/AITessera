@@ -24,4 +24,13 @@ interface RefreshTokenRepositoryInterface
      * 재사용 감지 시 해당 사용자의 유효한 모든 토큰을 무효화한다.
      */
     public function revokeAllForUser(int $userId, DateTimeImmutable $at): void;
+
+    /**
+     * 비밀번호 변경·재설정 시 해당 사용자의 모든 토큰을 삭제한다.
+     *
+     * 폐기(revoked_at)가 아니라 삭제하는 이유: 폐기된 토큰을 다른 기기가 다시 쓰면 재사용 감지가
+     * 작동해 비밀번호 변경 후 새로 발급한 세션까지 무효화된다. 삭제된 토큰은 '없는 토큰'으로
+     * 거절(INVALID_TOKEN)될 뿐 연쇄 무효화를 일으키지 않는다.
+     */
+    public function deleteAllForUser(int $userId): void;
 }

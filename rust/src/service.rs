@@ -27,6 +27,18 @@ pub struct TokenPair {
     pub refresh_token: String,
 }
 
+impl TokenPair {
+    /// 표준 토큰 응답 본문 (PHP `TokenPair::toArray`)
+    pub fn to_json(&self) -> Value {
+        json!({
+            "access_token": self.access_token,
+            "token_type": "Bearer",
+            "expires_in": self.expires_in,
+            "refresh_token": self.refresh_token,
+        })
+    }
+}
+
 pub struct LoginContext {
     pub ip: String,
     pub user_agent: String,
@@ -240,7 +252,7 @@ async fn apply_update(
     user_id: i64,
     fields: Vec<(&'static str, FieldValue)>,
     password: Option<String>,
-    revoke_sessions: bool,
+    deactivating: bool,
 ) -> AppResult<()> {
     let hash = match password {
         Some(pw) => Some(password_hash(pw).await?),
@@ -253,8 +265,11 @@ async fn apply_update(
     }
     if let Some(hash) = hash {
         repo::update_password(&mut *tx, user_id, &hash, now).await?;
-    }
-    if revoke_sessions {
+        // 재설정 시 기존 세션을 삭제한다 — 폐기로 남기면 옛 기기의 refresh 가 재사용 감지를
+        // 일으켜 회원이 새 비밀번호로 로그인한 세션까지 무효화된다
+        repo::delete_all_refresh_tokens(&mut *tx, user_id).await?;
+    } else if deactivating {
+        // 비활성화 시 기존 세션(리프레시 토큰)을 즉시 끊는다
         repo::revoke_all_refresh_tokens(&mut *tx, user_id, now).await?;
     }
     tx.commit().await?;
@@ -277,8 +292,31 @@ pub async fn update_me(state: &AppState, req: UpdateMeRequest, user_id: i64) -> 
         }
     }
     let fields = common_fields(&req.common, user.affiliation)?;
-    apply_update(state, user_id, fields, req.password, false).await?;
-    me(state, user_id).await
+    let hash = match req.password {
+        Some(pw) => Some(password_hash(pw).await?),
+        None => None,
+    };
+    let now = state.now();
+    let mut tx = state.db.begin().await?;
+    if !fields.is_empty() {
+        repo::update_fields(&mut *tx, user_id, fields, now).await?;
+    }
+    let tokens = match hash {
+        Some(hash) => {
+            repo::update_password(&mut *tx, user_id, &hash, now).await?;
+            // 다른 기기 세션을 모두 끊고(삭제 — 재사용 감지 연쇄 무효화 방지), 현재 기기용 새 토큰 쌍을 발급한다
+            repo::delete_all_refresh_tokens(&mut *tx, user_id).await?;
+            Some(issue_pair(state, &mut *tx, user.id, user.affiliation, user.role).await?)
+        }
+        None => None,
+    };
+    tx.commit().await?;
+
+    let mut profile = me(state, user_id).await?;
+    if let (Some(pair), Some(obj)) = (tokens, profile.as_object_mut()) {
+        obj.insert("tokens".into(), pair.to_json());
+    }
+    Ok(profile)
 }
 
 pub async fn withdraw(state: &AppState, user_id: i64, password: String) -> AppResult<()> {
@@ -510,9 +548,8 @@ pub async fn update_user(state: &AppState, req: UpdateUserRequest, target_id: i6
     if let Some(active) = req.is_active {
         fields.push(("is_active", FieldValue::Int(i64::from(active))));
     }
-    // 비활성화 또는 비밀번호 재설정 시 기존 세션(리프레시 토큰)을 즉시 끊는다
-    let revoke_sessions = req.is_active == Some(false) || req.password.is_some();
-    apply_update(state, target_id, fields, req.password, revoke_sessions).await
+    let deactivating = req.is_active == Some(false);
+    apply_update(state, target_id, fields, req.password, deactivating).await
 }
 
 // ───────────────────────────── LogService ─────────────────────────────

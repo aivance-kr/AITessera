@@ -22,8 +22,13 @@ use App\Repository\UserRepositoryInterface;
 use App\Service\UserService;
 use App\Support\Config;
 use App\Support\ConnectionInterface;
+use App\Support\Jwks;
+use App\Support\JwtIssuer;
 use App\Support\Queue\QueueInterface;
 use DateTimeImmutable;
+use Lcobucci\JWT\Configuration;
+use Lcobucci\JWT\Signer\Hmac\Sha256;
+use Lcobucci\JWT\Signer\Key\InMemory;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\FixedClock;
 
@@ -102,10 +107,12 @@ final class UserServiceTest extends TestCase
         // 수정 후 최신 프로필 조회
         $users->method('findProfileById')->with(42)->willReturn($this->profileRow(['id' => 42, 'name' => '새이름']));
 
-        $profile = $this->service($users, $this->createMock(EmailVerificationRepositoryInterface::class), $this->createMock(QueueInterface::class))
+        $result = $this->service($users, $this->createMock(EmailVerificationRepositoryInterface::class), $this->createMock(QueueInterface::class))
             ->updateMe(UpdateMeRequest::fromArray(['name' => '새이름', 'contact' => '010-9999-8888']), 42);
 
-        self::assertSame('새이름', $profile->name);
+        self::assertSame('새이름', $result->profile->name);
+        self::assertNull($result->tokens); // 비밀번호 미변경 — 세션 유지, 새 토큰 없음
+        self::assertArrayNotHasKey('tokens', $result->toArray());
     }
 
     public function testUpdateMeChangesPasswordWhenCurrentMatches(): void
@@ -117,11 +124,22 @@ final class UserServiceTest extends TestCase
         $users->expects(self::once())->method('updatePassword')->with(42);
         $users->method('findProfileById')->willReturn($this->profileRow(['id' => 42]));
 
-        $this->service($users, $this->createMock(EmailVerificationRepositoryInterface::class), $this->createMock(QueueInterface::class))
+        // 다른 기기 세션 전체 폐기 + 현재 기기용 새 리프레시 토큰 저장
+        $tokens = $this->createMock(RefreshTokenRepositoryInterface::class);
+        $tokens->expects(self::once())->method('deleteAllForUser')->with(42);
+        $tokens->expects(self::never())->method('revokeAllForUser');
+        $tokens->expects(self::once())->method('store')->with(42);
+
+        $result = $this->service($users, $this->createMock(EmailVerificationRepositoryInterface::class), $this->createMock(QueueInterface::class), $tokens)
             ->updateMe(UpdateMeRequest::fromArray([
                 'password' => 'New!Passw0rd1',
                 'current_password' => 'Old!Passw0rd',
             ]), 42);
+
+        self::assertNotNull($result->tokens);
+        $data = $result->toArray();
+        self::assertSame('Bearer', $data['tokens']['token_type']);
+        self::assertSame(900, $data['tokens']['expires_in']);
     }
 
     public function testUpdateMeRejectsWrongCurrentPassword(): void
@@ -438,6 +456,12 @@ final class UserServiceTest extends TestCase
             $this->config,
             $this->clock,
             $db,
+            new JwtIssuer(
+                Configuration::forSymmetricSigner(new Sha256(), InMemory::plainText($this->config->jwtSecret)),
+                $this->config,
+                $this->clock,
+                new Jwks($this->config),
+            ),
         );
     }
 

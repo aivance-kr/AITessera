@@ -223,6 +223,13 @@ def main() -> int:
     r.compare("PATCH /me 현재비번 불일치", lambda s, b: call(b, "PATCH", "/api/v1/me", {"password": "Newpassw0rd!", "current_password": "nope"}, token=member[s]))
     r.compare("PATCH /me 프로필 미허용(aivance)", lambda s, b: call(b, "PATCH", "/api/v1/me", {"profile": {"age": 1}}, token=member[s]))
     r.compare("PATCH /me 성공", lambda s, b: call(b, "PATCH", "/api/v1/me", {"name": "새이름", "contact": "010-9", "company": "회사/株式"}, token=member[s]))
+    # 본인 비밀번호 변경 — 다른 기기 세션 폐기 + 현재 기기용 새 토큰(data.tokens) 발급
+    other_device = {s: login(b, {"email": email(s, "op"), "password": op_base["password"], "affiliation": "aivance"})["refresh_token"]
+                    for s, b in r.bases.items()}
+    new_pw = "Ch4nged!Passw0rd"
+    r.compare("PATCH /me 비밀번호 변경 → tokens", lambda s, b: call(b, "PATCH", "/api/v1/me", {"password": new_pw, "current_password": op_base["password"]}, token=member[s]))
+    r.compare("다른 기기 refresh → 401", lambda s, b: call(b, "POST", "/api/v1/tokens/refresh", {"refresh_token": other_device[s]}))
+    r.compare("PATCH /me 비밀번호 원복", lambda s, b: call(b, "PATCH", "/api/v1/me", {"password": op_base["password"], "current_password": new_pw}, token=member[s]))
 
     print("[토큰 회전·로그아웃·탈퇴]")
     refresh = {s: login(b, {"email": email(s, "op"), "password": op_base["password"], "affiliation": "aivance"})["refresh_token"]

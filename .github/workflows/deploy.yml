@@ -13,12 +13,156 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    name: Deploy to production (SSH)
+  # ── Rust 포팅 빌드 ─────────────────────────────────────────────────────
+  # 운영서버에는 Rust 툴체인(cargo)을 두지 않는다. 러너에서 release 빌드한 뒤 바이너리만 올린다.
+  # build.rs·proc-macro 가 빌드 중 실행되므로 이 잡에는 운영 시크릿·environment 를 주지 않는다.
+  # 결과물은 아티팩트로 넘기고, 시크릿을 가진 deploy 잡은 받아서 올리기만 한다.
+  build-rust:
+    name: Build Rust binary
+    # 서버는 항상 origin/main 으로 reset 하므로 다른 ref 에서 수동 실행하면 바이너리와 소스가 어긋난다
+    if: github.ref == 'refs/heads/main'
     runs-on: [self-hosted, Linux, X64, docker]
-    environment: production
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      NEEDRESTART_MODE: l
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
+
+    outputs:
+      # rust/ 가 없는 커밋이면 빈 값 — deploy 잡의 Rust 단계가 모두 건너뛴다
+      sha256: ${{ steps.build.outputs.sha256 }}
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      # 러너 이미지마다 C 툴체인 유무가 달라 ring 등 네이티브 크레이트 빌드가 실패할 수 있다 — 없을 때만 설치
+      - name: C 컴파일러 확인 (없을 때만 apt 설치)
+        if: hashFiles('rust/Cargo.lock') != ''
+        run: |
+          if command -v cc >/dev/null 2>&1; then
+            echo "cc 있음 — apt 건너뜀"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends build-essential
+          fi
+
+      # composite 액션이라 컨테이너 러너에서도 동작한다 (Docker 컨테이너 액션 아님)
+      - name: Rust 툴체인 (stable)
+        if: hashFiles('rust/Cargo.lock') != ''
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+
+      - name: Cargo 캐시
+        if: hashFiles('rust/Cargo.lock') != ''
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: rust
+
+      - name: Rust release 빌드
+        id: build
+        if: hashFiles('rust/Cargo.lock') != ''
+        working-directory: rust
+        run: |
+          set -euo pipefail
+          cargo build --release --locked
+          ls -l target/release/aitessera
+          # 서버 glibc 보다 높은 버전을 요구하면 서버에서 실행되지 않는다 — SSH 단계에서 ldd 로 다시 확인한다
+          echo "러너 glibc: $(ldd --version | head -n1)"
+          sha="$(sha256sum target/release/aitessera | awk '{print $1}')"
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+          echo "sha256: $sha"
+
+      - name: 바이너리 아티팩트 업로드
+        if: steps.build.outputs.sha256 != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: aitessera-rust
+          path: rust/target/release/aitessera
+          retention-days: 7
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy to production (SSH)
+    needs: build-rust
+    # build-rust 가 실패해도 이 잡은 돌려 첫 단계에서 실패시킨다 — 그래야 Slack 실패 알림이 간다
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
+    runs-on: [self-hosted, Linux, X64, docker]
+    environment: production
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    env:
+      # 서버에 올릴 Rust 바이너리 경로(DEPLOY_PATH 기준). rust/.gitignore 의 /target 아래라
+      # git reset --hard 로 지워지지 않는다. 업로드는 .new 로 받고 SSH 단계에서 검증 후 교체한다.
+      RUST_BIN_REL: rust/target/release/aitessera
+      # 빈 값이면 이번 배포에 Rust 바이너리 없음 — 서버는 남은 .new 를 지우기만 한다
+      RUST_BIN_SHA256: ${{ needs.build-rust.outputs.sha256 }}
+
+    steps:
+      - name: Rust 빌드 결과 확인
+        env:
+          BUILD_RESULT: ${{ needs.build-rust.result }}
+        run: |
+          if [ "$BUILD_RESULT" != "success" ]; then
+            echo "ERROR: Rust 빌드 잡 결과 '$BUILD_RESULT' — 서버를 건드리지 않고 배포 중단"
+            exit 1
+          fi
+
+      - name: 바이너리 아티팩트 받기
+        if: env.RUST_BIN_SHA256 != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: aitessera-rust
+          path: ${{ runner.temp }}/rust-artifact
+
+      # appleboy/scp-action 은 Docker 컨테이너 액션이라 컨테이너 러너에서 작업 디렉터리가 안 보인다 — 셸 scp 로 올린다
+      - name: Rust 바이너리 업로드 (.new)
+        if: env.RUST_BIN_SHA256 != ''
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          # 선택: 서버 호스트 공개키 한 줄("<키타입> <base64>", 서버에서 직접 확인한 값).
+          # 설정하면 호스트 키를 고정 검증(StrictHostKeyChecking=yes)하고, 없으면 accept-new 로 동작한다.
+          DEPLOY_SSH_HOST_KEY: ${{ secrets.DEPLOY_SSH_HOST_KEY }}
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/rust-artifact/aitessera"
+          # 아티팩트가 빌드 잡이 만든 그 파일인지 확인
+          echo "$RUST_BIN_SHA256  $bin" | sha256sum -c -
+          key="$RUNNER_TEMP/deploy_key"
+          known="$RUNNER_TEMP/deploy_known_hosts"
+          ( umask 077; printf '%s\n' "$DEPLOY_SSH_KEY" > "$key" )
+          port="${DEPLOY_PORT:-22}"
+          if [ -n "$DEPLOY_SSH_HOST_KEY" ]; then
+            # known_hosts 형식: 포트가 22 가 아니면 [host]:port
+            if [ "$port" = "22" ]; then host_entry="$DEPLOY_HOST"; else host_entry="[$DEPLOY_HOST]:$port"; fi
+            printf '%s %s\n' "$host_entry" "$DEPLOY_SSH_HOST_KEY" > "$known"
+            strict=yes
+          else
+            echo "⚠️ DEPLOY_SSH_HOST_KEY 미설정 — 호스트 키를 고정 검증하지 않는다(accept-new)"
+            : > "$known"
+            strict=accept-new
+          fi
+          ssh_opts=(-i "$key" -o BatchMode=yes -o "StrictHostKeyChecking=$strict" -o "UserKnownHostsFile=$known")
+          target_dir="$DEPLOY_PATH/$(dirname "$RUST_BIN_REL")"
+          ssh "${ssh_opts[@]}" -p "$port" "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -p '$target_dir'"
+          scp "${ssh_opts[@]}" -P "$port" "$bin" "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/$RUST_BIN_REL.new"
+          echo "업로드 완료: $DEPLOY_PATH/$RUST_BIN_REL.new"
+
+      - name: SSH 키 정리
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/deploy_key" "$RUNNER_TEMP/deploy_known_hosts" "$RUNNER_TEMP/rust-artifact"
+
       - name: 프로덕션 서버 SSH 배포
         id: deploy_ssh
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
@@ -30,7 +174,7 @@ jobs:
           # 첫 실패 명령에서 스크립트 중단(set -e 와 동일 효과)
           script_stop: true
           command_timeout: 20m
-          envs: DEPLOY_PATH
+          envs: RUST_BIN_REL,RUST_BIN_SHA256
           script: |
             set -euo pipefail
             cd "${{ secrets.DEPLOY_PATH }}"
@@ -78,6 +222,44 @@ jobs:
               sudo -n systemctl reload "$fpm_svc" || echo "⚠️ $fpm_svc 리로드 실패(sudoers NOPASSWD 확인) — OPcache 는 validate_timestamps 로 갱신된다"
             else
               echo "⚠️ 실행 중인 php-fpm 서비스가 없어 리로드를 건너뛴다"
+            fi
+
+            # 러너가 올린 .new 를 검증 후 원자적으로 교체한다(mv 는 같은 파일시스템에서 rename).
+            # 실행 중인 프로세스는 기존 inode 를 계속 쓰므로 교체 자체로는 중단되지 않는다.
+            echo "▶ 6) Rust 바이너리 교체"
+            rust_bin="$RUST_BIN_REL"
+            # 이번 실행이 업로드한 경우에만(해시가 넘어온 경우에만) 설치한다.
+            # 해시가 없으면 이전 실행이 남긴 .new 는 설치하지 않고 지운다.
+            if [ -z "${RUST_BIN_SHA256:-}" ]; then
+              rm -f "$rust_bin.new"
+              echo "  이번 배포에서 업로드한 Rust 바이너리 없음 — 건너뜀"
+            elif [ -f "$rust_bin.new" ]; then
+              # 해시 검증을 ldd·chmod 보다 먼저 — 검증 안 된 파일은 실행 경로에 두지 않는다
+              if ! echo "$RUST_BIN_SHA256  $rust_bin.new" | sha256sum -c --status; then
+                echo "ERROR: Rust 바이너리 sha256 불일치 — 교체 중단"
+                rm -f "$rust_bin.new"
+                exit 1
+              fi
+              chmod 755 "$rust_bin.new"
+              # 러너 glibc 가 서버보다 높으면 'GLIBC_x.y not found' — 교체하지 않고 배포를 중단한다
+              if ldd "$rust_bin.new" 2>&1 | grep -q 'not found'; then
+                ldd "$rust_bin.new" 2>&1 | grep 'not found'
+                echo "ERROR: Rust 바이너리가 서버 라이브러리와 맞지 않음 — 교체 중단"
+                rm -f "$rust_bin.new"
+                exit 1
+              fi
+              mv -f "$rust_bin.new" "$rust_bin"
+              echo "  교체 완료: $rust_bin"
+              # Rust 서버를 systemd 서비스로 운영하는 경우에만 재시작한다(없으면 건너뜀).
+              #   서버 준비: '<DEPLOY_USER> ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart aitessera-rust'
+              if systemctl cat aitessera-rust.service >/dev/null 2>&1; then
+                sudo -n systemctl restart aitessera-rust || echo "⚠️ aitessera-rust 재시작 실패(sudoers NOPASSWD 확인)"
+              else
+                echo "  aitessera-rust 서비스 없음 — 재시작 건너뜀"
+              fi
+            else
+              echo "ERROR: 업로드했다던 Rust 바이너리($rust_bin.new)가 서버에 없음 — 배포 중단"
+              exit 1
             fi
 
             echo "✅ 배포 완료: $(git rev-parse --short HEAD)"

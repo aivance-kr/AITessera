@@ -10,6 +10,7 @@ use App\Domain\Security\LoginContext;
 use App\Domain\TokenPair;
 use App\Domain\User;
 use App\Domain\UserRole;
+use App\Exception\DomainException;
 use App\Exception\EmailNotVerifiedException;
 use App\Exception\InvalidCredentialsException;
 use App\Exception\InvalidTokenException;
@@ -88,46 +89,67 @@ final readonly class AuthService
         ]);
     }
 
+    /**
+     * Refresh 토큰 회전.
+     *
+     * 동시성: 같은 사용자에 대한 세션 종료(비활성화·비밀번호 변경·탈퇴·재사용 감지)와 경합하지 않도록
+     * 사용자 행 → 토큰 행 순서로 행 잠금(FOR UPDATE)을 잡고 상태를 다시 확인한 뒤 회전한다.
+     * 세션 종료 경로는 모두 같은 트랜잭션에서 users 행을 먼저 갱신하므로 잠금 순서가 같아 교착이 없다.
+     */
     public function refresh(string $refreshToken): TokenPair
     {
-        $row = $this->refreshTokens->findByHash($this->jwt->hashRefreshToken($refreshToken));
+        $hash = $this->jwt->hashRefreshToken($refreshToken);
+        $row = $this->refreshTokens->findByHash($hash);
         if ($row === null) {
             throw new InvalidTokenException();
         }
+        $userId = RefreshToken::fromRow($row)->userId;
 
-        $token = RefreshToken::fromRow($row);
-        $now = $this->clock->now();
+        // 거절 사유는 트랜잭션 밖에서 던진다 — 안에서 던지면 함께 수행한 전체 폐기가 롤백된다.
+        $outcome = $this->db->transaction(function () use ($hash, $userId): TokenPair|DomainException {
+            $userRow = $this->users->lockById($userId);
+            $tokenRow = $this->refreshTokens->lockByHash($hash);
+            if ($tokenRow === null) {
+                return new InvalidTokenException();
+            }
 
-        // 폐기된 토큰 재사용 → 탈취 간주, 사용자 전체 토큰 무효화
-        if ($token->isRevoked()) {
-            $this->refreshTokens->revokeAllForUser($token->userId, $now);
+            $token = RefreshToken::fromRow($tokenRow);
+            $now = $this->clock->now();
 
-            throw new InvalidTokenException('재사용이 감지되어 모든 세션이 무효화되었습니다.');
-        }
+            // 폐기된 토큰 재사용 → 탈취 간주, 사용자 전체 토큰 무효화
+            if ($token->isRevoked()) {
+                $this->refreshTokens->revokeAllForUser($token->userId, $now);
 
-        if ($token->isExpired($now)) {
-            throw new TokenExpiredException();
-        }
+                return new InvalidTokenException('재사용이 감지되어 모든 세션이 무효화되었습니다.');
+            }
 
-        $userRow = $this->users->findById($token->userId);
-        if ($userRow === null) {
-            throw new InvalidTokenException();
-        }
-        $user = User::fromRow($userRow);
+            if ($token->isExpired($now)) {
+                return new TokenExpiredException();
+            }
 
-        // 비활성(정지) 계정은 세션을 연장할 수 없다 — 남은 리프레시 토큰도 모두 폐기
-        if (!$user->isActive) {
-            $this->refreshTokens->revokeAllForUser($user->id, $now);
+            if ($userRow === null) {
+                return new InvalidTokenException();
+            }
+            $user = User::fromRow($userRow);
 
-            throw new InvalidTokenException();
-        }
+            // 비활성(정지) 계정은 세션을 연장할 수 없다 — 남은 리프레시 토큰도 모두 폐기
+            if (!$user->isActive) {
+                $this->refreshTokens->revokeAllForUser($user->id, $now);
 
-        // 회전: 이전 토큰 폐기 + 새 토큰 발급을 하나의 트랜잭션으로
-        return $this->db->transaction(function () use ($token, $user, $now): TokenPair {
+                return new InvalidTokenException();
+            }
+
+            // 회전: 이전 토큰 폐기 + 새 토큰 발급
             $this->refreshTokens->revoke($token->id, $now);
 
             return $this->issuePair($user->id, $user->affiliation->value, $user->role);
         });
+
+        if ($outcome instanceof DomainException) {
+            throw $outcome;
+        }
+
+        return $outcome;
     }
 
     public function logout(string $refreshToken): void

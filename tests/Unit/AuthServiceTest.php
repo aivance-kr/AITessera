@@ -175,11 +175,12 @@ final class AuthServiceTest extends TestCase
 
         $tokens = $this->createMock(RefreshTokenRepositoryInterface::class);
         $tokens->method('findByHash')->with($this->issuer->hashRefreshToken($plain))->willReturn($tokenRow);
+        $tokens->method('lockByHash')->with($this->issuer->hashRefreshToken($plain))->willReturn($tokenRow);
         $tokens->expects(self::once())->method('revoke')->with(7);
         $tokens->expects(self::once())->method('store');
 
         $users = $this->createMock(UserRepositoryInterface::class);
-        $users->method('findById')->willReturn($this->userRow());
+        $users->method('lockById')->with(42)->willReturn($this->userRow());
 
         $pair = $this->service($users, $tokens)->refresh($plain);
 
@@ -199,6 +200,7 @@ final class AuthServiceTest extends TestCase
 
         $tokens = $this->createMock(RefreshTokenRepositoryInterface::class);
         $tokens->method('findByHash')->willReturn($tokenRow);
+        $tokens->method('lockByHash')->willReturn($tokenRow);
         $tokens->expects(self::once())->method('revokeAllForUser')->with(42);
 
         $users = $this->createMock(UserRepositoryInterface::class);
@@ -218,14 +220,34 @@ final class AuthServiceTest extends TestCase
 
         $tokens = $this->createMock(RefreshTokenRepositoryInterface::class);
         $tokens->method('findByHash')->willReturn($tokenRow);
+        $tokens->method('lockByHash')->willReturn($tokenRow);
         $tokens->expects(self::once())->method('revokeAllForUser')->with(42);
         $tokens->expects(self::never())->method('store');
 
         $users = $this->createMock(UserRepositoryInterface::class);
-        $users->method('findById')->willReturn($this->userRow(['is_active' => 0]));
+        $users->method('lockById')->willReturn($this->userRow(['is_active' => 0]));
 
         $this->expectException(InvalidTokenException::class);
         $this->service($users, $tokens)->refresh('suspended-user-token');
+    }
+
+    public function testRefreshRechecksTokenUnderLockAndDoesNotIssueWhenRevokedConcurrently(): void
+    {
+        $active = ['id' => 7, 'user_id' => 42, 'expires_at' => '2026-07-19 12:00:00', 'revoked_at' => null];
+        // 잠금 전 조회 이후, 다른 트랜잭션(비활성화·비밀번호 변경 등)이 먼저 폐기를 커밋한 상황
+        $revoked = [...$active, 'revoked_at' => '2026-07-05 11:59:59'];
+
+        $tokens = $this->createMock(RefreshTokenRepositoryInterface::class);
+        $tokens->method('findByHash')->willReturn($active);
+        $tokens->method('lockByHash')->willReturn($revoked);
+        $tokens->expects(self::never())->method('store');
+        $tokens->expects(self::never())->method('revoke');
+
+        $users = $this->createMock(UserRepositoryInterface::class);
+        $users->expects(self::once())->method('lockById')->with(42)->willReturn($this->userRow());
+
+        $this->expectException(InvalidTokenException::class);
+        $this->service($users, $tokens)->refresh('raced-token');
     }
 
     public function testRefreshWithExpiredTokenThrows(): void
@@ -239,6 +261,7 @@ final class AuthServiceTest extends TestCase
 
         $tokens = $this->createMock(RefreshTokenRepositoryInterface::class);
         $tokens->method('findByHash')->willReturn($tokenRow);
+        $tokens->method('lockByHash')->willReturn($tokenRow);
 
         $users = $this->createMock(UserRepositoryInterface::class);
 
@@ -268,6 +291,7 @@ final class AuthServiceTest extends TestCase
 
         $tokens = $this->createMock(RefreshTokenRepositoryInterface::class);
         $tokens->method('findByHash')->willReturn($tokenRow);
+        $tokens->method('lockByHash')->willReturn($tokenRow);
         $tokens->expects(self::once())->method('revoke')->with(7);
 
         $users = $this->createMock(UserRepositoryInterface::class);

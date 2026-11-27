@@ -43,6 +43,20 @@ final readonly class RefreshTokenRepository implements RefreshTokenRepositoryInt
         return $row === false ? null : $row;
     }
 
+    public function lockByHash(string $tokenHash): ?array
+    {
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT id, user_id, expires_at, revoked_at FROM refresh_tokens
+             WHERE token_hash = :token_hash
+             LIMIT 1
+             FOR UPDATE',
+        );
+        $stmt->execute(['token_hash' => $tokenHash]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
+    }
+
     public function revoke(int $id, DateTimeImmutable $at): void
     {
         $stmt = $this->db->pdo()->prepare(

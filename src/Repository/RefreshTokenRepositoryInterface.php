@@ -18,6 +18,13 @@ interface RefreshTokenRepositoryInterface
      */
     public function findByHash(string $tokenHash): ?array;
 
+    /**
+     * findByHash 와 같은 조회를 행 잠금(SELECT ... FOR UPDATE)으로 수행한다 — 트랜잭션 안에서만 사용.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function lockByHash(string $tokenHash): ?array;
+
     public function revoke(int $id, DateTimeImmutable $at): void;
 
     /**

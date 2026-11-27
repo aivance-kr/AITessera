@@ -56,6 +56,20 @@ final readonly class UserRepository implements UserRepositoryInterface
         return $row === false ? null : $row;
     }
 
+    public function lockById(int $id): ?array
+    {
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT ' . self::COLUMNS . ' FROM users
+             WHERE id = :id AND deleted_at IS NULL
+             LIMIT 1
+             FOR UPDATE',
+        );
+        $stmt->execute(['id' => $id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
+    }
+
     public function findProfileById(int $id): ?array
     {
         $stmt = $this->db->pdo()->prepare(

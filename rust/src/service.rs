@@ -145,36 +145,59 @@ async fn record_login_event(state: &AppState, email: &str, ctx: &LoginContext, s
         .await
 }
 
+/// Refresh 토큰 회전.
+///
+/// 동시성: 세션 종료(비활성화·비밀번호 변경·탈퇴·재사용 감지)와 경합하지 않도록 사용자 행 → 토큰 행
+/// 순서로 FOR UPDATE 잠금을 잡고 상태를 다시 확인한 뒤 회전한다. 세션 종료 경로는 모두 같은
+/// 트랜잭션에서 users 행을 먼저 갱신하므로 잠금 순서가 같아 교착이 없다.
 pub async fn refresh(state: &AppState, refresh_token: &str) -> AppResult<TokenPair> {
-    let token = repo::find_refresh_token(&state.db, &sha256_hex(refresh_token))
+    let hash = sha256_hex(refresh_token);
+    let user_id = repo::find_refresh_token(&state.db, &hash)
+        .await?
+        .ok_or_else(AppError::invalid_token)?
+        .user_id as i64;
+
+    let mut tx = state.db.begin().await?;
+    let user_row = repo::lock_by_id(&mut *tx, user_id).await?;
+    let outcome = rotate_locked(state, &mut tx, &hash, user_row).await;
+    match outcome {
+        // 예상 못한 오류는 롤백 (PHP Database::transaction 의 Throwable 처리와 동일)
+        Err(AppError::Internal(_)) => tx.rollback().await?,
+        // 거절이어도 커밋한다 — 거절 경로에서 수행한 전체 폐기를 남겨야 한다 (PHP 는 거절을 트랜잭션 밖에서 던짐)
+        _ => tx.commit().await?,
+    }
+    outcome
+}
+
+async fn rotate_locked(
+    state: &AppState,
+    tx: &mut sqlx::Transaction<'_, sqlx::MySql>,
+    hash: &str,
+    user_row: Option<repo::UserRow>,
+) -> AppResult<TokenPair> {
+    let token = repo::lock_refresh_token(&mut **tx, hash)
         .await?
         .ok_or_else(AppError::invalid_token)?;
     let now = state.now();
     // 폐기된 토큰 재사용 → 탈취 간주, 사용자 전체 토큰 무효화
     if token.closed_at.is_some() {
-        repo::revoke_all_refresh_tokens(&state.db, token.user_id as i64, now).await?;
+        repo::revoke_all_refresh_tokens(&mut **tx, token.user_id as i64, now).await?;
         return Err(AppError::InvalidToken("재사용이 감지되어 모든 세션이 무효화되었습니다.".into()));
     }
     if token.expires_at <= now {
         return Err(AppError::token_expired());
     }
-    let user = repo::find_by_id(&state.db, token.user_id as i64)
-        .await?
-        .ok_or_else(AppError::invalid_token)?;
-    let user = User::from_row(user)?;
+    let user = User::from_row(user_row.ok_or_else(AppError::invalid_token)?)?;
 
     // 비활성(정지) 계정은 세션을 연장할 수 없다 — 남은 리프레시 토큰도 모두 폐기
     if !user.is_active {
-        repo::revoke_all_refresh_tokens(&state.db, user.id, now).await?;
+        repo::revoke_all_refresh_tokens(&mut **tx, user.id, now).await?;
         return Err(AppError::invalid_token());
     }
 
-    // 회전: 이전 토큰 폐기 + 새 토큰 발급을 하나의 트랜잭션으로
-    let mut tx = state.db.begin().await?;
-    repo::revoke_refresh_token(&mut *tx, token.id as i64, now).await?;
-    let pair = issue_pair(state, &mut *tx, user.id, user.affiliation, user.role).await?;
-    tx.commit().await?;
-    Ok(pair)
+    // 회전: 이전 토큰 폐기 + 새 토큰 발급
+    repo::revoke_refresh_token(&mut **tx, token.id as i64, now).await?;
+    issue_pair(state, &mut **tx, user.id, user.affiliation, user.role).await
 }
 
 pub async fn logout(state: &AppState, refresh_token: &str) -> AppResult<()> {

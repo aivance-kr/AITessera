@@ -103,6 +103,19 @@ pub async fn find_by_id(db: impl MySqlExecutor<'_>, id: i64) -> AppResult<Option
     .await?)
 }
 
+/// find_by_id + 행 잠금(FOR UPDATE) — 트랜잭션 안에서만 사용 (PHP `lockById`)
+pub async fn lock_by_id(db: impl MySqlExecutor<'_>, id: i64) -> AppResult<Option<UserRow>> {
+    Ok(sqlx::query_as::<_, UserRow>(
+        "SELECT id, email, password_hash, affiliation, role, is_active, email_verified_at FROM users
+         WHERE id = ? AND deleted_at IS NULL
+         LIMIT 1
+         FOR UPDATE",
+    )
+    .bind(id)
+    .fetch_optional(db)
+    .await?)
+}
+
 pub async fn find_profile_by_id(db: impl MySqlExecutor<'_>, id: i64) -> AppResult<Option<ProfileRow>> {
     Ok(sqlx::query_as::<_, ProfileRow>(
         "SELECT id, email, name, affiliation, role, contact, company, profile, email_verified_at, created_at FROM users
@@ -335,6 +348,19 @@ pub async fn find_refresh_token(db: impl MySqlExecutor<'_>, hash: &str) -> AppRe
         "SELECT id, user_id, expires_at, revoked_at AS closed_at FROM refresh_tokens
          WHERE token_hash = ?
          LIMIT 1",
+    )
+    .bind(hash)
+    .fetch_optional(db)
+    .await?)
+}
+
+/// find_refresh_token + 행 잠금(FOR UPDATE) — 트랜잭션 안에서만 사용 (PHP `lockByHash`)
+pub async fn lock_refresh_token(db: impl MySqlExecutor<'_>, hash: &str) -> AppResult<Option<TokenRow>> {
+    Ok(sqlx::query_as::<_, TokenRow>(
+        "SELECT id, user_id, expires_at, revoked_at AS closed_at FROM refresh_tokens
+         WHERE token_hash = ?
+         LIMIT 1
+         FOR UPDATE",
     )
     .bind(hash)
     .fetch_optional(db)

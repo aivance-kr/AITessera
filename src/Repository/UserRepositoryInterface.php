@@ -27,6 +27,13 @@ interface UserRepositoryInterface
     public function findById(int $id): ?array;
 
     /**
+     * findById 와 같은 조회를 행 잠금(SELECT ... FOR UPDATE)으로 수행한다 — 트랜잭션 안에서만 사용.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function lockById(int $id): ?array;
+
+    /**
      * `/me` 노출용 안전 컬럼(민감정보 제외)만 조회한다.
      *
      * @return array<string, mixed>|null

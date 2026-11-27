@@ -18,6 +18,9 @@ jobs:
     # 게시한 포트(127.0.0.1)에는 닿지 못한다("Connection refused"). 실행별 전용 네트워크에
     # 러너와 컨테이너를 같이 붙이고 컨테이너 이름으로 접속한다.
     runs-on: [self-hosted, Linux, X64, docker]
+    # 공개 저장소 + 셀프호스트 러너: composer 스크립트·PHPUnit 이 러너에서 그대로 실행되므로
+    # 포크 PR 코드는 돌리지 않는다(같은 저장소 브랜치에서 온 PR만).
+    if: github.event.pull_request.head.repo.full_name == github.repository
 
     permissions:
       contents: read
@@ -32,7 +35,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: MySQL · Redis 컨테이너 기동
         run: |
@@ -138,7 +141,7 @@ jobs:
         run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
 
       - name: Composer 패키지 캐시
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ steps.composer-cache.outputs.dir }}
           key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
@@ -211,7 +214,7 @@ jobs:
       - name: Post coverage PR comment
         if: github.event_name == 'pull_request'
         continue-on-error: true
-        uses: marocchino/sticky-pull-request-comment@v2
+        uses: marocchino/sticky-pull-request-comment@773744901bac0e8cbb5a0dc842800d45e9b2b405 # v2.9.4
         with:
           recreate: true
           path: code-coverage-results.md
@@ -247,7 +250,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # 러너 이미지마다 C 툴체인 유무가 달라 ring 등 네이티브 크레이트 빌드가 실패할 수 있다 — 없을 때만 설치
       - name: C 컴파일러 확인 (없을 때만 apt 설치)

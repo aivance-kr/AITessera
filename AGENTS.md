@@ -266,7 +266,7 @@ MySQL·Redis 컨테이너를 직접 기동하고 다음 순서로 검증한다.
 
 - **트리거**: `main` push + `workflow_dispatch`(수동·롤백)
 - **동시성**: `deploy-production` 그룹 — 배포 동시 실행 1개, `cancel-in-progress: false`
-- **대상**: Ubuntu + mod_php(또는 PHP-FPM) 아파치 단일 서버 (appleboy/ssh-action)
+- **대상**: Ubuntu + 아파치 + PHP-FPM(`php8.5-fpm`) 단일 서버 (appleboy/ssh-action)
 
 ### 배포 절차 (서버 SSH 실행)
 
@@ -275,7 +275,7 @@ MySQL·Redis 컨테이너를 직접 기동하고 다음 순서로 검증한다.
 3. `composer install --no-dev --optimize-autoloader`
 4. `php bin/console migrate` — 출력을 grep 검사해 예외 감지 시 `exit 1` 로 배포 중단
 5. 캐시 초기화 (OPcache / Redis 애플리케이션 캐시)
-6. `sudo -n systemctl reload apache2`(또는 `php-fpm`) — OPcache 갱신(무중단)
+6. `sudo -n systemctl reload apache2` — 아파치 리로드(무중단). OPcache 는 PHP-FPM 의 `opcache.validate_timestamps` 로 갱신된다(즉시 비우려면 `php8.5-fpm` 리로드)
 7. **Slack 알림** — SSH 배포 스텝(1~6) 종료 후 GitHub Actions 러너에서 성공(`if: success()`)·
    실패(`if: failure()`) 각각 별도 스텝으로 Incoming Webhook(`SLACK_WEBHOOK_URL`)에 결과 전송
 

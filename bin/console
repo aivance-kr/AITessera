@@ -6,12 +6,14 @@ declare(strict_types=1);
 // AITessera CLI 진입점.
 // phinx 마이그레이션 위임 + 애플리케이션 커맨드(큐 컨슈머 등)를 지원한다.
 
+use App\Console\CreateOperator;
 use App\Console\GenerateDailyLogReport;
 use App\Console\GenerateSecurityReport;
 use App\Console\ProcessLoginAnomaly;
 use App\Console\ProcessLogQueue;
 use App\Console\ProcessMailQueue;
 use App\Support\ContainerFactory;
+use App\Exception\ValidationException;
 use App\Support\JwtKeyGenerator;
 use Dotenv\Dotenv;
 
@@ -48,6 +50,7 @@ $usage = static function (): int {
       report:daily 전일 로그 집계 → AI 일일 리포트 생성 → 메일 큐 적재
       report:security 전일 로그인 이벤트 보안 집계 → AI 보안 리포트 생성 → 메일 큐 적재
       jwt:keygen  RS256 서명용 RSA 키페어 생성 (--force 로 덮어쓰기)
+      operator:create 최초 운영자 계정 생성 (--email= --name= --affiliation= --contact= [--company=], 비밀번호는 입력 프롬프트/표준입력)
 
     TXT);
 
@@ -139,6 +142,48 @@ $reportSecurity = static function (): int {
     return 0;
 };
 
+$operatorCreate = static function (array $argv): int {
+    // 비밀번호는 셸 히스토리·ps 에 남지 않도록 인자로 받지 않는다.
+    // 터미널이면 화면에 표시하지 않고 두 번 입력받고, 파이프면 표준입력 첫 줄을 읽는다.
+    $isTty = function_exists('posix_isatty') && posix_isatty(STDIN);
+    $readSecret = static function (string $prompt) use ($isTty): string {
+        if ($isTty) {
+            fwrite(STDOUT, $prompt);
+            shell_exec('stty -echo');
+        }
+        $line = fgets(STDIN);
+        if ($isTty) {
+            shell_exec('stty echo');
+            fwrite(STDOUT, "\n");
+        }
+
+        return rtrim($line === false ? '' : $line, "\r\n");
+    };
+
+    $password = $readSecret('비밀번호: ');
+    if ($isTty && $readSecret('비밀번호 확인: ') !== $password) {
+        fwrite(STDERR, "비밀번호가 일치하지 않습니다.\n");
+
+        return 1;
+    }
+
+    try {
+        $command = ContainerFactory::build()->get(CreateOperator::class);
+        assert($command instanceof CreateOperator);
+        fwrite(STDOUT, $command->run(CreateOperator::parseOptions($argv), $password) . "\n");
+    } catch (ValidationException $e) {
+        fwrite(STDERR, "입력값 오류:\n  - " . implode("\n  - ", $e->errors()) . "\n");
+
+        return 1;
+    } catch (Throwable $e) {
+        fwrite(STDERR, "운영자 생성 실패: {$e->getMessage()}\n");
+
+        return 1;
+    }
+
+    return 0;
+};
+
 $exitCode = match ($command) {
     'migrate'          => $runPhinx(['migrate']),
     'rollback'         => $runPhinx(['rollback']),
@@ -149,6 +194,7 @@ $exitCode = match ($command) {
     'report:daily'     => $reportDaily(),
     'report:security'  => $reportSecurity(),
     'jwt:keygen'       => $jwtKeygen($argv),
+    'operator:create'  => $operatorCreate($argv),
     'list', '--help', '-h' => $usage(),
     default            => (static function (string $c): int {
         fwrite(STDERR, "알 수 없는 커맨드: {$c}\n실행 가능한 커맨드는 `php bin/console list` 로 확인하세요.\n");

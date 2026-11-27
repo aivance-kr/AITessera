@@ -106,7 +106,7 @@ PHP_URL=http://127.0.0.1:18305 RUST_URL=http://127.0.0.1:18306 REQUESTS=2000 CON
 1. 운영 서버에 바이너리 배치 후 systemd 등으로 `RUST_BIND_ADDR=127.0.0.1:8306` 기동 (같은 `.env`).
 2. `APP_TIMEZONE` 을 운영 PHP `date.timezone` 과 맞춘다.
 3. Apache 가상호스트에서 `ProxyPass / http://127.0.0.1:8306/` + `ProxyPreserveHost On` 으로 전환. 롤백은 프록시 설정만 되돌리면 된다.
-4. 큐 워커(`mail:work`, `log:work`, `security:scan`, 리포트)·마이그레이션(`phinx`)·`seed:admin` 은 계속 PHP CLI 를 사용한다 — 이 포팅은 HTTP API 만 대상이다.
+4. 큐 워커(`mail:work`, `log:work`, `security:scan`, 리포트)·마이그레이션(`phinx`)·`operator:create` 는 계속 PHP CLI 를 사용한다 — 이 포팅은 HTTP API 만 대상이다.
 5. 프록시 뒤에서는 클라이언트 IP 가 프록시 주소가 된다(PHP 도 REMOTE_ADDR 만 신뢰하므로 동일 정책). 레이트 리밋 키가 프록시 IP 로 모이지 않게 하려면 별도 결정이 필요하다.
 
 ## 알려진 차이·제약

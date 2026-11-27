@@ -16,6 +16,7 @@ use App\Exception\InvalidCredentialsException;
 use App\Exception\InvalidTokenException;
 use App\Exception\NotFoundException;
 use App\Exception\TokenExpiredException;
+use App\Exception\ValidationException;
 use App\Repository\EmailVerificationRepositoryInterface;
 use App\Repository\RefreshTokenRepositoryInterface;
 use App\Repository\UserRepositoryInterface;
@@ -347,6 +348,52 @@ final class UserServiceTest extends TestCase
             ->createOperatorAccount($this->createOperatorRequest(), 100);
     }
 
+    public function testCreateInitialOperatorCreatesVerifiedOperatorWithoutCreator(): void
+    {
+        $users = $this->createMock(UserRepositoryInterface::class);
+        // 콘솔(신뢰 채널) 생성 — 생성자 조회 없음
+        $users->expects(self::never())->method('findById');
+        $users->method('emailExists')->with('ops@aivance.test', 'aivance')->willReturn(false);
+        $users->expects(self::once())->method('create')
+            ->with(self::callback(static fn (string $email): bool => $email === 'ops@aivance.test'))
+            ->willReturnCallback(static function (mixed ...$args): int {
+                self::assertSame(UserRole::Operator, $args[8]);
+                self::assertTrue(password_verify('Secur3!pass', (string) $args[1]));
+
+                return 300;
+            });
+        $users->expects(self::once())->method('markEmailVerified')->with(300);
+
+        $queue = $this->createMock(QueueInterface::class);
+        $queue->expects(self::never())->method('push');
+
+        $newId = $this->service($users, $this->createMock(EmailVerificationRepositoryInterface::class), $queue)
+            ->createInitialOperator($this->initialOperatorRequest(UserRole::Operator));
+
+        self::assertSame(300, $newId);
+    }
+
+    public function testCreateInitialOperatorRejectsNonOperatorRole(): void
+    {
+        $users = $this->createMock(UserRepositoryInterface::class);
+        $users->expects(self::never())->method('create');
+
+        $this->expectException(ValidationException::class);
+        $this->service($users, $this->createMock(EmailVerificationRepositoryInterface::class), $this->createMock(QueueInterface::class))
+            ->createInitialOperator($this->initialOperatorRequest(UserRole::Agency));
+    }
+
+    public function testCreateInitialOperatorRejectsDuplicateEmail(): void
+    {
+        $users = $this->createMock(UserRepositoryInterface::class);
+        $users->method('emailExists')->with('ops@aivance.test', 'aivance')->willReturn(true);
+        $users->expects(self::never())->method('create');
+
+        $this->expectException(AlreadyExistsException::class);
+        $this->service($users, $this->createMock(EmailVerificationRepositoryInterface::class), $this->createMock(QueueInterface::class))
+            ->createInitialOperator($this->initialOperatorRequest(UserRole::Operator));
+    }
+
     public function testVerifyEmailMarksUserVerifiedAndConsumesToken(): void
     {
         $verifications = $this->createMock(EmailVerificationRepositoryInterface::class);
@@ -492,6 +539,20 @@ final class UserServiceTest extends TestCase
             affiliation: Affiliation::Aivance,
             name: '홍길동',
             contact: '010-1234-5678',
+            company: null,
+            profile: [],
+        );
+    }
+
+    private function initialOperatorRequest(UserRole $role): CreateOperatorRequest
+    {
+        return new CreateOperatorRequest(
+            email: 'ops@aivance.test',
+            password: 'Secur3!pass',
+            role: $role,
+            affiliation: Affiliation::Aivance,
+            name: '운영자',
+            contact: '010-0000-0000',
             company: null,
             profile: [],
         );

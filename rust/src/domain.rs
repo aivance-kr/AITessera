@@ -468,16 +468,28 @@ impl LogRequest {
         })
     }
 
-    pub fn to_payload(&self) -> Value {
-        serde_json::json!({
-            "level": self.level,
-            "message": self.message,
-            "context": php::php_normalize(self.context.clone()),
-            "source": self.source,
-            "user_id": self.user_id,
-            "logged_at": self.logged_at,
-        })
+    /// 큐 메시지 본문 — 원본을 빌린 채 직렬화한다 (context 는 PHP 정규화 규칙 적용)
+    pub fn to_payload(&self) -> LogPayload<'_> {
+        LogPayload {
+            level: &self.level,
+            message: &self.message,
+            context: php::PhpNormalized(&self.context),
+            source: self.source.as_deref(),
+            user_id: self.user_id,
+            logged_at: self.logged_at.as_deref(),
+        }
     }
+}
+
+/// `log_queue` 메시지 — 필드 순서 = PHP 배열 키 순서
+#[derive(serde::Serialize)]
+pub struct LogPayload<'a> {
+    level: &'a str,
+    message: &'a str,
+    context: php::PhpNormalized<'a>,
+    source: Option<&'a str>,
+    user_id: Option<i64>,
+    logged_at: Option<&'a str>,
 }
 
 /// PATCH 공통 필드 파싱 (UpdateMeRequest / UpdateUserRequest 공유 부분)

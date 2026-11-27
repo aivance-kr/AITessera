@@ -5,6 +5,7 @@
 //! 공개/보호 구분도 라우트 매칭 전에 (method, path) 정확 일치로 판정하므로,
 //! 토큰 없이 존재하지 않는 경로를 호출하면 404 가 아니라 401 이 되는 점까지 같다.
 
+use std::borrow::Cow;
 use std::net::SocketAddr;
 
 use axum::body::{Body, Bytes};
@@ -24,13 +25,16 @@ use crate::domain::{
 use crate::error::{error_response, AppError, AppResult, ThrownError};
 use crate::jwt::AuthContext;
 use crate::php::{self, Input};
-use crate::response::{no_content, ok, success};
+use crate::response::{json_bytes, no_content, ok, success, success_with_meta};
 use crate::service::{self, LoginContext, TokenPair};
 use crate::state::SharedState;
 
-const APP_NAME: &str = "AITessera";
-const APP_VERSION: &str = "1.0.0";
 const OPENAPI_JSON: &str = include_str!("../static/openapi.json");
+
+/// 고정 응답 본문 — 요청마다 직렬화하지 않고 정적 바이트를 그대로 보낸다
+const HEALTH_BODY: &[u8] =
+    br#"{"status":"success","data":{"service":"AITessera","version":"1.0.0","status":"ok"}}"#;
+const LOG_ACCEPTED_BODY: &[u8] = br#"{"status":"success","data":{"accepted":true}}"#;
 
 /// 인증 없이 접근 가능한 (method, path) — PHP JwtAuthMiddleware::PUBLIC_ROUTES
 const PUBLIC_ROUTES: [(&str, &str); 12] = [
@@ -128,11 +132,12 @@ async fn cors(req: Request, next: Next) -> Response {
 
 /// RateLimitMiddleware — IP 별 sliding window (인증 계열 엄격 / 일반 API)
 async fn rate_limit(State(state): State<SharedState>, req: Request, next: Next) -> Response {
-    let path = req.uri().path().to_string();
+    // 경로·메서드는 빌려서 비교만 한다 (요청마다 String 복사 없음)
+    let path = req.uri().path();
     if path == "/health" {
         return next.run(req).await;
     }
-    let method = req.method().as_str().to_string();
+    let method = req.method().as_str();
     let sensitive = SENSITIVE_ROUTES
         .iter()
         .any(|(m, p)| *m == method && *p == path);
@@ -141,7 +146,8 @@ async fn rate_limit(State(state): State<SharedState>, req: Request, next: Next) 
     } else {
         ("api", state.config.rate_limit_api)
     };
-    match state.limiter.consume(id, &client_ip(&req), limit).await {
+    let ip = client_ip(&req);
+    match state.limiter.consume(id, ip, limit).await {
         Ok(None) => next.run(req).await,
         Ok(Some(retry_after)) => {
             let mut res = error_response(
@@ -203,22 +209,33 @@ fn is_digits(s: &str) -> bool {
     !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
 }
 
-/// REMOTE_ADDR 만 신뢰한다 (X-Forwarded-For 미사용 — PHP 와 동일 정책)
-fn client_ip(req: &Request) -> String {
-    req.extensions()
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|ConnectInfo(addr)| addr.ip().to_string())
-        .unwrap_or_else(|| "0.0.0.0".into())
+/// REMOTE_ADDR 만 신뢰한다 (X-Forwarded-For 미사용 — PHP 와 동일 정책).
+/// 문자열로 바꾸지 않고 `IpAddr` 그대로 넘긴다 — 키 조립 시 한 번만 포맷된다.
+fn client_ip(req: &Request) -> std::net::IpAddr {
+    req.extensions().get::<ConnectInfo<SocketAddr>>().map_or(
+        std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+        |ConnectInfo(addr)| addr.ip(),
+    )
 }
 
-/// PSR-7 `getHeaderLine()` — 같은 이름의 헤더를 ", " 로 결합
-fn header_line(headers: &HeaderMap, name: header::HeaderName) -> String {
-    headers
-        .get_all(name)
-        .iter()
-        .filter_map(|v| v.to_str().ok())
-        .collect::<Vec<_>>()
-        .join(", ")
+/// PSR-7 `getHeaderLine()` — 같은 이름의 헤더를 ", " 로 결합.
+/// 헤더가 1개(대부분)면 할당 없이 빌린 문자열을 돌려준다.
+fn header_line(headers: &HeaderMap, name: header::HeaderName) -> Cow<'_, str> {
+    let mut values = headers.get_all(name).iter().filter_map(|v| v.to_str().ok());
+    let Some(first) = values.next() else {
+        return Cow::Borrowed("");
+    };
+    match values.next() {
+        None => Cow::Borrowed(first),
+        Some(second) => {
+            let mut joined = format!("{first}, {second}");
+            for v in values {
+                joined.push_str(", ");
+                joined.push_str(v);
+            }
+            Cow::Owned(joined)
+        }
+    }
 }
 
 /// RoleGuardMiddleware (#[RequireRole(Operator)]) — 토큰의 회원구분으로 판정
@@ -241,21 +258,23 @@ impl<S: Send + Sync> FromRequest<S> for JsonInput {
 
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
         let is_post = req.method() == Method::POST;
-        let content_type = header_line(req.headers(), header::CONTENT_TYPE);
-        let base_type = content_type
-            .split(';')
-            .next()
-            .unwrap_or("")
-            .trim()
-            .to_lowercase();
+        // 본문 소비 전에 Content-Type 종류만 판정해 둔다 (소문자 변환 할당 없이 비교)
+        let (is_form, is_multipart) = {
+            let content_type = header_line(req.headers(), header::CONTENT_TYPE);
+            let base_type = content_type.split(';').next().unwrap_or("").trim();
+            (
+                base_type.eq_ignore_ascii_case("application/x-www-form-urlencoded"),
+                base_type.eq_ignore_ascii_case("multipart/form-data"),
+            )
+        };
         let body = Bytes::from_request(req, state)
             .await
             .map_err(IntoResponse::into_response)?;
 
-        if is_post && base_type == "application/x-www-form-urlencoded" {
+        if is_post && is_form {
             return Ok(Self(form_to_input(&body)));
         }
-        if is_post && base_type == "multipart/form-data" {
+        if is_post && is_multipart {
             // multipart 필드 파싱은 미지원 — 이 API 의 모든 클라이언트는 JSON 을 보낸다
             return Ok(Self(Map::new()));
         }
@@ -300,7 +319,7 @@ fn form_to_input(raw: &[u8]) -> Input {
 // ───────────────────────────── 핸들러: 공개 ─────────────────────────────
 
 async fn health() -> Response {
-    ok(json!({ "service": APP_NAME, "version": APP_VERSION, "status": "ok" }))
+    json_bytes(Bytes::from_static(HEALTH_BODY), StatusCode::OK)
 }
 
 fn raw_response(
@@ -335,7 +354,7 @@ async fn jwks(State(state): State<SharedState>) -> Response {
 }
 
 fn token_response(pair: TokenPair, status: StatusCode) -> Response {
-    success(pair.to_json(), None, status)
+    success(&pair, status)
 }
 
 async fn token_issue(
@@ -347,7 +366,7 @@ async fn token_issue(
     let dto = LoginRequest::from_input(&input)?;
     let ctx = LoginContext {
         ip: addr.ip().to_string(),
-        user_agent: header_line(&headers, header::USER_AGENT),
+        user_agent: header_line(&headers, header::USER_AGENT).into_owned(),
     };
     let pair = service::login(&state, dto, ctx).await?;
     Ok(token_response(pair, StatusCode::CREATED))
@@ -384,8 +403,7 @@ async fn user_register(
     let dto = RegisterRequest::from_input(&input)?;
     let id = service::register(&state, &dto).await?;
     Ok(success(
-        json!({ "id": id, "email": dto.email, "email_verified": false }),
-        None,
+        &json!({ "id": id, "email": dto.email, "email_verified": false }),
         StatusCode::CREATED,
     ))
 }
@@ -402,7 +420,7 @@ async fn user_verify(
 ) -> AppResult<Response> {
     let token = require_string_field(&input, "token")?;
     service::verify_email(&state, &token).await?;
-    Ok(ok(json!({ "verified": true })))
+    Ok(ok(&json!({ "verified": true })))
 }
 
 async fn user_resend(
@@ -422,8 +440,7 @@ async fn user_resend(
     service::resend_verification(&state, &email, affiliation.as_str()).await?;
     // 이메일 존재 여부를 노출하지 않도록 항상 202
     Ok(success(
-        json!({ "message": "인증 메일을 발송했습니다." }),
-        None,
+        &json!({ "message": "인증 메일을 발송했습니다." }),
         StatusCode::ACCEPTED,
     ))
 }
@@ -434,9 +451,8 @@ async fn log_store(
 ) -> AppResult<Response> {
     let dto = LogRequest::from_input(&input)?;
     service::record_log(&state, &dto).await?;
-    Ok(success(
-        json!({ "accepted": true }),
-        None,
+    Ok(json_bytes(
+        Bytes::from_static(LOG_ACCEPTED_BODY),
         StatusCode::ACCEPTED,
     ))
 }
@@ -447,7 +463,7 @@ async fn me_show(
     State(state): State<SharedState>,
     Extension(auth): Extension<AuthContext>,
 ) -> AppResult<Response> {
-    Ok(ok(service::me(&state, auth.user_id).await?))
+    Ok(ok(&service::me(&state, auth.user_id).await?))
 }
 
 async fn me_update(
@@ -456,7 +472,7 @@ async fn me_update(
     JsonInput(input): JsonInput,
 ) -> AppResult<Response> {
     let dto = UpdateMeRequest::from_input(&input)?;
-    Ok(ok(service::update_me(&state, dto, auth.user_id).await?))
+    Ok(ok(&service::update_me(&state, dto, auth.user_id).await?))
 }
 
 async fn me_destroy(
@@ -481,8 +497,7 @@ async fn operator_create(
     let dto = CreateOperatorRequest::from_input(&input)?;
     let id = service::create_operator_account(&state, &dto, auth.user_id).await?;
     Ok(success(
-        json!({ "id": id, "email": dto.email, "role": dto.role.value(), "email_verified": true }),
-        None,
+        &json!({ "id": id, "email": dto.email, "role": dto.role.value(), "email_verified": true }),
         StatusCode::CREATED,
     ))
 }
@@ -495,10 +510,11 @@ async fn admin_index(
     require_operator(&auth)?;
     let params = form_to_input(query.unwrap_or_default().as_bytes());
     let q = UserListQuery::from_params(&params)?;
-    let (items, total) = service::list_users(&state, &q, auth.user_id).await?;
-    Ok(success(
-        Value::Array(items),
-        Some(service::pagination_meta(&q, total)),
+    let (items, total) =
+        service::list_users(&state, &q, auth.user_id, auth.affiliation_hint).await?;
+    Ok(success_with_meta(
+        &items,
+        &service::pagination_meta(&q, total),
         StatusCode::OK,
     ))
 }
@@ -518,7 +534,13 @@ async fn admin_show(
 ) -> AppResult<Response> {
     let target = path_id(&id)?;
     require_operator(&auth)?;
-    Ok(ok(service::get_user(&state, target, auth.user_id).await?))
+    Ok(ok(&service::get_user(
+        &state,
+        target,
+        auth.user_id,
+        auth.affiliation_hint,
+    )
+    .await?))
 }
 
 async fn admin_update(
@@ -532,7 +554,13 @@ async fn admin_update(
     let dto = UpdateUserRequest::from_input(&input)?;
     service::update_user(&state, dto, target, auth.user_id).await?;
     // 수정 후 최신 상태 반환
-    Ok(ok(service::get_user(&state, target, auth.user_id).await?))
+    Ok(ok(&service::get_user(
+        &state,
+        target,
+        auth.user_id,
+        auth.affiliation_hint,
+    )
+    .await?))
 }
 
 /// DocsController::html() — PHP heredoc 결과와 바이트 단위로 같다

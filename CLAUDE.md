@@ -282,7 +282,7 @@ production server. Defined in: `.github/workflows/deploy.yml`.
 3. `composer install --no-dev --optimize-autoloader`
 4. `php bin/console migrate` — grep the output for exceptions and `exit 1` to abort the deploy if found
 5. Clear caches (OPcache / Redis application cache)
-6. `sudo -n systemctl reload apache2` — reload Apache (zero downtime). OPcache is refreshed by PHP-FPM's `opcache.validate_timestamps` (reload `php8.5-fpm` to flush it immediately)
+6. `sudo -n systemctl reload apache2` + reload the running `php*-fpm` service — zero downtime, refreshes OPcache (an FPM reload failure only logs a warning)
 7. **Slack notification** — after the SSH deploy steps (1-6) finish, the GitHub Actions runner sends
    the result to an Incoming Webhook (`SLACK_WEBHOOK_URL`) in separate success (`if: success()`) and
    failure (`if: failure()`) steps
@@ -308,7 +308,7 @@ production server. Defined in: `.github/workflows/deploy.yml`.
 
 - **GitHub read-only deploy key** — set the server repo remote to SSH (`git@github.com:...`) (HTTPS fails with `could not read Username`)
 - **Production `.env`** with real DB, Redis, and JWT credentials (missing this causes `Access denied` during migrate)
-- **Passwordless sudo**: in `/etc/sudoers.d/aitessera-deploy`, `<DEPLOY_USER> ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload apache2` (missing this fails with `sudo: a password is required`)
+- **Passwordless sudo**: in `/etc/sudoers.d/aitessera-deploy`, `<DEPLOY_USER> ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload apache2, /usr/bin/systemctl reload php8.5-fpm` (missing the apache2 rule this fails with `sudo: a password is required`)
 - Apache's `DocumentRoot` is `public/`; `var/` must be writable by the Apache user (`www-data`)
 - **var/ setgid setup (recommended)** — eliminates chmod failures caused by ownership conflicts at the root:
   ```bash

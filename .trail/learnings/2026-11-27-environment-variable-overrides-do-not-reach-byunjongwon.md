@@ -3,7 +3,7 @@ title: Environment variable overrides do not reach PHP config; run against a tes
 author: Byunjongwon
 date: 2026-11-27
 branch: claude/php-rust-performance-test-2a1a02
-cost: { minutes: 28, tokens: 587706 }
+cost: { minutes: 36, tokens: 620778 }
 id: l-be4725a8
 scope: repo
 status: active
@@ -26,6 +26,7 @@ To point PHP at another DB/key path (e.g. a benchmark or test DB), pass `-d vari
 - PDO runs with native prepares (EMULATE_PREPARES=false), which rejects reusing one named placeholder twice in a query (HY093, surfaced as 500). Give each occurrence its own name even when the value is the same.
 - A suspended (is_active=0) account cannot extend its session: refresh revokes all its refresh tokens and returns INVALID_TOKEN. Deactivating a member through the admin PATCH also revokes all their refresh tokens in the same transaction. Access tokens still live until expiry (max 15 min).
 - PHP and the Rust port must change together so the parity check stays at 0 mismatches.
+- When an admin resets a member's password (PATCH /users/{id} with password), all of that member's refresh tokens are revoked in the same transaction, the same as deactivation. A leaked account can't keep its session after an admin locks it out.
 
 ## Tried and ruled out
 - `export DB_NAME=... && php bin/console migrate`: still migrated the dev DB `aitessera`. Local php.ini has `variables_order=GPCS`, so `$_ENV` lacks process env; phpdotenv (immutable) then fills `$_ENV` from `.env`, and `Config`/`phinx.php` read only `$_ENV`.
@@ -43,3 +44,6 @@ In the code:
 - Running the suite with the benchmark env (RATE_LIMIT_AUTH=1000000) makes the rate-limit pipeline test fail (422 instead of 429). Unset the RATE_LIMIT_* overrides for tests.
 
 In the code: src/Repository/UserRepository.php buildListWhere (:search_email/:search_name), src/Service/AuthService.php refresh, src/Service/UserAdminService.php updateUser, rust/src/service.rs refresh/apply_update.
+- A user changing their own password via PATCH /me deliberately does NOT revoke sessions yet. Ending only other devices requires issuing a fresh token pair in the /me response, which changes the API contract. This is an open policy decision, and PHP and Rust must change together.
+
+In the code: src/Service/UserAdminService.php updateUser, rust/src/service.rs update_user (revoke_sessions).

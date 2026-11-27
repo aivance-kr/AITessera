@@ -265,6 +265,18 @@ With MySQL and Redis started as `services:` containers, verification runs in thi
 
 > New PHP code must pass PHPStan level 8 and have green related PHPUnit tests to pass CI. Write `tests/` tests alongside every new feature.
 
+### `rust` job — rustfmt · Clippy · cargo test
+
+Runs in parallel with `backend` for the Axum + SQLx port under `rust/` (no MySQL/Redis — unit tests only).
+
+1. Install `cc` via apt only if missing (native crates such as `ring` need it)
+2. `dtolnay/rust-toolchain@stable` with `rustfmt`, `clippy` + `Swatinem/rust-cache`
+3. `cargo fmt --all -- --check`
+4. `cargo clippy --all-targets --locked -- -D warnings`
+5. `cargo test --locked`
+
+> Run the same three commands in `rust/` before pushing Rust changes — `cargo fmt` fixes formatting.
+
 ## CD (Deployment)
 
 A push to `main` (i.e., a `dev → main` PR merge) triggers **automatic SSH deployment** to the

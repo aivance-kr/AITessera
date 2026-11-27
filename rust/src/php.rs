@@ -95,7 +95,10 @@ pub fn true_val(v: &Value) -> bool {
     match v {
         Value::Bool(b) => *b,
         Value::Number(n) => n.as_i64() == Some(1) || n.as_f64() == Some(1.0),
-        Value::String(s) => matches!(s.trim().to_lowercase().as_str(), "1" | "true" | "on" | "yes"),
+        Value::String(s) => matches!(
+            s.trim().to_lowercase().as_str(),
+            "1" | "true" | "on" | "yes"
+        ),
         _ => false,
     }
 }
@@ -133,7 +136,9 @@ pub fn loose_in_str(v: &Value, haystack: &[&str]) -> bool {
 /// PHP `in_array($v, [1,2,3])` (느슨한 비교) — 정수 목록 대상
 pub fn loose_in_int(v: &Value, haystack: &[i64]) -> bool {
     match v {
-        Value::Number(n) => n.as_f64().is_some_and(|f| haystack.iter().any(|h| *h as f64 == f)),
+        Value::Number(n) => n
+            .as_f64()
+            .is_some_and(|f| haystack.iter().any(|h| *h as f64 == f)),
         Value::String(s) => numeric_str(s).is_some_and(|f| haystack.iter().any(|h| *h as f64 == f)),
         Value::Bool(b) => haystack.iter().any(|h| (*h != 0) == *b),
         _ => false,
@@ -145,7 +150,9 @@ pub fn loose_in_int(v: &Value, haystack: &[i64]) -> bool {
 pub fn php_normalize(v: Value) -> Value {
     match v {
         Value::Object(m) if m.is_empty() => Value::Array(vec![]),
-        Value::Object(m) => Value::Object(m.into_iter().map(|(k, v)| (k, php_normalize(v))).collect()),
+        Value::Object(m) => {
+            Value::Object(m.into_iter().map(|(k, v)| (k, php_normalize(v))).collect())
+        }
         Value::Array(a) => Value::Array(a.into_iter().map(php_normalize).collect()),
         other => other,
     }
@@ -200,7 +207,10 @@ pub fn strtotime_ok(v: &Value) -> bool {
     if s.is_empty() {
         return false;
     }
-    if matches!(s.to_lowercase().as_str(), "now" | "today" | "tomorrow" | "yesterday" | "midnight" | "noon") {
+    if matches!(
+        s.to_lowercase().as_str(),
+        "now" | "today" | "tomorrow" | "yesterday" | "midnight" | "noon"
+    ) {
         return true;
     }
     if let Some(ts) = s.strip_prefix('@') {
@@ -218,7 +228,10 @@ pub fn strtotime_ok(v: &Value) -> bool {
         "%Y-%m-%d %H:%M",
         "%Y/%m/%d %H:%M:%S",
     ];
-    if DT_FORMATS.iter().any(|f| NaiveDateTime::parse_from_str(s, f).is_ok()) {
+    if DT_FORMATS
+        .iter()
+        .any(|f| NaiveDateTime::parse_from_str(s, f).is_ok())
+    {
         return true;
     }
     const TZ_FORMATS: [&str; 4] = [
@@ -227,17 +240,24 @@ pub fn strtotime_ok(v: &Value) -> bool {
         "%Y-%m-%d %H:%M:%S%.f%z",
         "%Y-%m-%dT%H:%M:%S%.f%z",
     ];
-    if TZ_FORMATS.iter().any(|f| DateTime::parse_from_str(s, f).is_ok()) {
+    if TZ_FORMATS
+        .iter()
+        .any(|f| DateTime::parse_from_str(s, f).is_ok())
+    {
         return true;
     }
-    ["%Y-%m-%d", "%Y/%m/%d"].iter().any(|f| NaiveDate::parse_from_str(s, f).is_ok())
+    ["%Y-%m-%d", "%Y/%m/%d"]
+        .iter()
+        .any(|f| NaiveDate::parse_from_str(s, f).is_ok())
 }
 
 /// Respect `Date('Y-m-d')` — 형식과 달력상 유효성 모두 검사
 pub fn valid_ymd(v: &Value) -> bool {
     let s = match v {
         Value::String(s) => s.as_str(),
-        Value::Number(n) => return n.to_string().len() == 10 && valid_ymd(&Value::String(n.to_string())),
+        Value::Number(n) => {
+            return n.to_string().len() == 10 && valid_ymd(&Value::String(n.to_string()))
+        }
         _ => return false,
     };
     let b = s.as_bytes();
@@ -276,15 +296,38 @@ mod tests {
     #[test]
     fn email_parity_with_php() {
         let cases = [
-            (true, "a@b.com"), (false, "a@b"), (true, "a.b@c.d.e"), (true, "\"quoted\"@example.com"),
-            (false, "a..b@c.com"), (false, ".a@c.com"), (false, "a.@c.com"), (false, "a@-b.com"),
-            (false, "a@b-.com"), (true, "a@b.c0m"), (false, "a@b.1com"), (true, "a+tag@example.co.kr"),
-            (true, "user@[127.0.0.1]"), (true, "user@[IPv6:2001:db8::1]"), (false, "user@localhost"),
-            (false, "한글@example.com"), (false, "user@exam_ple.com"), (true, "user@xn--bcher-kva.ch"),
-            (true, "a@b.c"), (false, "user name@example.com"),
-            (false, "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmn@x.com"),
-            (false, "abc@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com"),
-            (true, "A@B.COM"), (false, "a@b.com."), (false, "test@sub.-domain.com"), (true, "x@y.z1"),
+            (true, "a@b.com"),
+            (false, "a@b"),
+            (true, "a.b@c.d.e"),
+            (true, "\"quoted\"@example.com"),
+            (false, "a..b@c.com"),
+            (false, ".a@c.com"),
+            (false, "a.@c.com"),
+            (false, "a@-b.com"),
+            (false, "a@b-.com"),
+            (true, "a@b.c0m"),
+            (false, "a@b.1com"),
+            (true, "a+tag@example.co.kr"),
+            (true, "user@[127.0.0.1]"),
+            (true, "user@[IPv6:2001:db8::1]"),
+            (false, "user@localhost"),
+            (false, "한글@example.com"),
+            (false, "user@exam_ple.com"),
+            (true, "user@xn--bcher-kva.ch"),
+            (true, "a@b.c"),
+            (false, "user name@example.com"),
+            (
+                false,
+                "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmn@x.com",
+            ),
+            (
+                false,
+                "abc@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com",
+            ),
+            (true, "A@B.COM"),
+            (false, "a@b.com."),
+            (false, "test@sub.-domain.com"),
+            (true, "x@y.z1"),
         ];
         for (expected, email) in cases {
             assert_eq!(valid_email(email), expected, "{email}");

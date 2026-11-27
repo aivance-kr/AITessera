@@ -63,14 +63,26 @@ impl JwtService {
                 if !config.jwt_private_key_passphrase.is_empty() {
                     bail!("Rust 구현은 암호화된 개인키(JWT_PRIVATE_KEY_PASSPHRASE)를 지원하지 않습니다 — 복호화된 PEM 을 배치하세요.");
                 }
-                let private_pem = std::fs::read(&config.jwt_private_key_path)
-                    .with_context(|| format!("JWT 개인키 파일을 읽을 수 없습니다: {}", config.jwt_private_key_path.display()))?;
+                let private_pem =
+                    std::fs::read(&config.jwt_private_key_path).with_context(|| {
+                        format!(
+                            "JWT 개인키 파일을 읽을 수 없습니다: {}",
+                            config.jwt_private_key_path.display()
+                        )
+                    })?;
                 let public_pem = std::fs::read_to_string(&config.jwt_public_key_path)
-                    .with_context(|| format!("공개키 파일을 읽을 수 없습니다: {}", config.jwt_public_key_path.display()))?;
+                    .with_context(|| {
+                        format!(
+                            "공개키 파일을 읽을 수 없습니다: {}",
+                            config.jwt_public_key_path.display()
+                        )
+                    })?;
                 (
                     Algorithm::RS256,
-                    EncodingKey::from_rsa_pem(&private_pem).context("JWT 개인키 PEM 파싱에 실패했습니다.")?,
-                    DecodingKey::from_rsa_pem(public_pem.as_bytes()).context("공개키 PEM 파싱에 실패했습니다.")?,
+                    EncodingKey::from_rsa_pem(&private_pem)
+                        .context("JWT 개인키 PEM 파싱에 실패했습니다.")?,
+                    DecodingKey::from_rsa_pem(public_pem.as_bytes())
+                        .context("공개키 PEM 파싱에 실패했습니다.")?,
                     Some(rsa_public_jwk(&public_pem, config.jwt_algo)?),
                 )
             }
@@ -83,7 +95,9 @@ impl JwtService {
         validation.validate_aud = false;
         validation.required_spec_claims = HashSet::new();
 
-        let kid = jwk.as_ref().and_then(|j| j["kid"].as_str().map(str::to_string));
+        let kid = jwk
+            .as_ref()
+            .and_then(|j| j["kid"].as_str().map(str::to_string));
         let keys = jwk.map(|j| vec![j]).unwrap_or_default();
         let jwks_body = serde_json::to_string(&json!({ "keys": keys }))?;
 
@@ -103,7 +117,12 @@ impl JwtService {
     }
 
     /// Access 토큰 발급 — iat·nbf=now, exp=now+TTL, sub=userId, aff, role
-    pub fn issue_access_token(&self, user_id: i64, affiliation: &str, role: UserRole) -> Result<String, AppError> {
+    pub fn issue_access_token(
+        &self,
+        user_id: i64,
+        affiliation: &str,
+        role: UserRole,
+    ) -> Result<String, AppError> {
         let now = chrono::Utc::now().timestamp();
         let claims = AccessClaims {
             iat: now,
@@ -115,7 +134,8 @@ impl JwtService {
         };
         let mut header = Header::new(self.algorithm);
         header.kid = self.kid.clone();
-        jsonwebtoken::encode(&header, &claims, &self.encoding_key).map_err(|e| AppError::Internal(e.to_string()))
+        jsonwebtoken::encode(&header, &claims, &self.encoding_key)
+            .map_err(|e| AppError::Internal(e.to_string()))
     }
 
     /// `Authorization` 헤더 값을 검증한다 (PHP JwtAuthMiddleware::authenticate 와 동일 순서·메시지)
@@ -130,13 +150,17 @@ impl JwtService {
         let data = jsonwebtoken::decode::<Value>(jwt, &self.decoding_key, &self.validation)
             .map_err(|_| AppError::invalid_token())?;
         let claims = data.claims;
-        let Value::Object(claims) = claims else { return Err(AppError::invalid_token()) };
+        let Value::Object(claims) = claims else {
+            return Err(AppError::invalid_token());
+        };
 
         // 시간 클레임은 lcobucci 파서처럼 숫자(정수/실수/숫자 문자열)여야 한다 — 아니면 파싱 실패
         let time_claim = |name: &str| -> Result<Option<f64>, AppError> {
             match claims.get(name) {
                 None => Ok(None),
-                Some(v) => crate::php::numeric_f64(v).map(Some).ok_or_else(AppError::invalid_token),
+                Some(v) => crate::php::numeric_f64(v)
+                    .map(Some)
+                    .ok_or_else(AppError::invalid_token),
             }
         };
         let iat = time_claim("iat")?;
@@ -156,7 +180,9 @@ impl JwtService {
 
         let sub = claims.get("sub").filter(|v| crate::php::is_numeric(v));
         let Some(user_id) = sub.and_then(crate::php::numeric_to_int) else {
-            return Err(AppError::InvalidToken("토큰에 유효한 사용자 식별자가 없습니다.".into()));
+            return Err(AppError::InvalidToken(
+                "토큰에 유효한 사용자 식별자가 없습니다.".into(),
+            ));
         };
         let role = claims
             .get("role")

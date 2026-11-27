@@ -106,7 +106,7 @@ php bin/console rollback    # 마지막 마이그레이션 롤백
 
 ### 시더 · 테스트 계정
 
-배포·마이그레이션은 시더를 **자동 실행하지 않는다.** 개발/수동 테스트용 관리자 계정이 필요하면:
+배포·마이그레이션은 시더를 **자동 실행하지 않는다.** 개발/수동 테스트용 관리자 계정이 필요하면(로컬 전용 — 운영 서버에서는 아래 `operator:create` 사용):
 
 ```bash
 php bin/console seed:run   # 재실행 안전 (이미 있으면 건너뜀)
@@ -124,6 +124,14 @@ php bin/console seed:run   # 재실행 안전 (이미 있으면 건너뜀)
 curl -X POST http://localhost:8305/api/v1/tokens \
   -H 'Content-Type: application/json' \
   -d '{"email":"admin@aivance.test","password":"password1234!"}'
+```
+
+### 운영 서버 — 최초 운영자 계정
+
+`TestUserSeeder` 는 비밀번호가 공개돼 있으므로 운영 서버에서 실행하지 않는다. 대신 `operator:create` 로 운영자(`role=1`)를 만든다. 비밀번호는 화면에 표시되지 않는 프롬프트로 두 번 입력받는다(파이프로 넘기면 표준입력 첫 줄). 같은 소속에 같은 이메일이 있으면 건너뛴다.
+
+```bash
+php bin/console operator:create --email=<이메일> --name=<이름> --affiliation=aivance --contact=<연락처> [--company=<회사>]
 ```
 
 ### JWT 서명 키 (RS256)
@@ -190,7 +198,7 @@ composer analyse    # PHPStan (level 8)
 composer cs-fix     # PHP-CS-Fixer 자동 정렬
 composer cs-check   # PHP-CS-Fixer dry-run
 composer check      # cs-check + analyse + test 순차 실행
-php bin/console <command>   # CLI (migrate·rollback·seed:run·jwt:keygen·mail:work·log:work·security:scan·report:daily·report:security)
+php bin/console <command>   # CLI (migrate·rollback·seed:run·jwt:keygen·operator:create·mail:work·log:work·security:scan·report:daily·report:security)
 ```
 
 ---

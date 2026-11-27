@@ -275,7 +275,7 @@ MySQL·Redis 컨테이너를 직접 기동하고 다음 순서로 검증한다.
 3. `composer install --no-dev --optimize-autoloader`
 4. `php bin/console migrate` — 출력을 grep 검사해 예외 감지 시 `exit 1` 로 배포 중단
 5. 캐시 초기화 (OPcache / Redis 애플리케이션 캐시)
-6. `sudo -n systemctl reload apache2` — 아파치 리로드(무중단). OPcache 는 PHP-FPM 의 `opcache.validate_timestamps` 로 갱신된다(즉시 비우려면 `php8.5-fpm` 리로드)
+6. `sudo -n systemctl reload apache2` + 실행 중인 `php*-fpm` 리로드 — 무중단, OPcache 갱신(FPM 리로드 실패는 경고만)
 7. **Slack 알림** — SSH 배포 스텝(1~6) 종료 후 GitHub Actions 러너에서 성공(`if: success()`)·
    실패(`if: failure()`) 각각 별도 스텝으로 Incoming Webhook(`SLACK_WEBHOOK_URL`)에 결과 전송
 
@@ -297,7 +297,7 @@ MySQL·Redis 컨테이너를 직접 기동하고 다음 순서로 검증한다.
 
 - **GitHub 읽기전용 deploy key** — 서버 저장소 리모트를 SSH(`git@github.com:...`)로 설정 (HTTPS면 `could not read Username` 실패)
 - **프로덕션 `.env`** 에 실제 DB·Redis·JWT 접속정보 (없으면 migrate 시 `Access denied`)
-- **비밀번호 없는 sudo**: `/etc/sudoers.d/aitessera-deploy` 에 `<DEPLOY_USER> ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload apache2` (없으면 `sudo: a password is required` 로 실패)
+- **비밀번호 없는 sudo**: `/etc/sudoers.d/aitessera-deploy` 에 `<DEPLOY_USER> ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload apache2, /usr/bin/systemctl reload php8.5-fpm` (apache2 가 없으면 `sudo: a password is required` 로 실패)
 - 아파치 `DocumentRoot` 는 `public/`, `var/` 는 아파치 유저(`www-data`) 쓰기 가능
 - **var/ setgid 구성(권장)** — 소유권 충돌로 인한 chmod 실패를 근본 제거:
   ```bash

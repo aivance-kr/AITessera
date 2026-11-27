@@ -49,12 +49,12 @@ final class MeController extends BaseController
     #[OA\Patch(
         path: '/api/v1/me',
         summary: '본인 정보 수정',
-        description: '토큰의 사용자 본인 정보를 부분 수정한다. 이름·연락처·회사·프로필·비밀번호만 변경 가능하다(회원구분·활성상태·이메일 제외). 비밀번호 변경 시 `current_password` 를 함께 보내 본인 확인을 거친다.',
+        description: '토큰의 사용자 본인 정보를 부분 수정한다. 이름·연락처·회사·프로필·비밀번호만 변경 가능하다(회원구분·활성상태·이메일 제외). 비밀번호 변경 시 `current_password` 를 함께 보내 본인 확인을 거친다. 비밀번호를 변경하면 다른 기기의 세션(Refresh 토큰)이 모두 무효화되고, 현재 기기용 새 토큰 쌍이 응답의 `data.tokens` 로 함께 반환된다.',
         security: [['bearerAuth' => []]],
         requestBody: new OA\RequestBody(required: true, content: new OA\JsonContent(ref: '#/components/schemas/UpdateMeRequest')),
         tags: ['Users'],
         responses: [
-            new OA\Response(response: 200, description: '수정 후 사용자 프로필', content: new OA\JsonContent(ref: '#/components/schemas/MeResponse')),
+            new OA\Response(response: 200, description: '수정 후 사용자 프로필(비밀번호 변경 시 `data.tokens` 포함)', content: new OA\JsonContent(ref: '#/components/schemas/UpdateMeResponse')),
             new OA\Response(response: 401, description: '인증 실패 또는 현재 비밀번호 불일치 (UNAUTHORIZED/INVALID_TOKEN/TOKEN_EXPIRED/INVALID_CREDENTIALS)', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
             new OA\Response(response: 404, description: '사용자 없음 (NOT_FOUND)', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),
             new OA\Response(response: 422, description: '유효성 검사 실패 (VALIDATION_ERROR)', content: new OA\JsonContent(ref: '#/components/schemas/ErrorResponse')),

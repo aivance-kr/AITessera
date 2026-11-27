@@ -1,0 +1,46 @@
+[package]
+name = "aitessera"
+version = "1.0.0"
+edition = "2021"
+description = "AITessera — PHP 구현과 동일한 요청/응답 계약을 갖는 Axum + SQLx 포팅본 (성능 비교·교체용)"
+publish = false
+
+[[bin]]
+name = "aitessera"
+path = "src/main.rs"
+
+[dependencies]
+axum = { version = "0.8", features = ["macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time", "sync"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["normalize-path", "catch-panic"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "mysql", "chrono", "json", "derive"] }
+serde = { version = "1", features = ["derive"] }
+# preserve_order — PHP json_encode 처럼 키 삽입 순서를 그대로 유지한다
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_urlencoded = "0.7"
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager", "script"] }
+jsonwebtoken = "9"
+rsa = { version = "0.9", features = ["pem"] }
+argon2 = { version = "0.5", features = ["std"] }
+bcrypt = "0.16"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+rand = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+chrono-tz = "0.10"
+fancy-regex = "0.14"
+regex = "1"
+dotenvy = "0.15"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "2"
+anyhow = "1"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "unwind"
+strip = false

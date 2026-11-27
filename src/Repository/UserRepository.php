@@ -56,6 +56,20 @@ final readonly class UserRepository implements UserRepositoryInterface
         return $row === false ? null : $row;
     }
 
+    public function lockById(int $id): ?array
+    {
+        $stmt = $this->db->pdo()->prepare(
+            'SELECT ' . self::COLUMNS . ' FROM users
+             WHERE id = :id AND deleted_at IS NULL
+             LIMIT 1
+             FOR UPDATE',
+        );
+        $stmt->execute(['id' => $id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
+    }
+
     public function findProfileById(int $id): ?array
     {
         $stmt = $this->db->pdo()->prepare(
@@ -281,8 +295,10 @@ final readonly class UserRepository implements UserRepositoryInterface
             $params['is_active'] = $isActive ? 1 : 0;
         }
         if ($search !== null && $search !== '') {
-            $conditions[] = '(email LIKE :search OR name LIKE :search)';
-            $params['search'] = '%' . $search . '%';
+            // 네이티브 prepare(EMULATE_PREPARES=false)는 같은 이름 플레이스홀더 재사용을 허용하지 않는다(HY093)
+            $conditions[] = '(email LIKE :search_email OR name LIKE :search_name)';
+            $params['search_email'] = '%' . $search . '%';
+            $params['search_name'] = '%' . $search . '%';
         }
 
         return [implode(' AND ', $conditions), $params];

@@ -142,6 +142,25 @@ final class UserServiceTest extends TestCase
         self::assertSame(900, $data['tokens']['expires_in']);
     }
 
+    public function testUpdateMePasswordChangeIsForbiddenForInactiveUser(): void
+    {
+        $users = $this->createMock(UserRepositoryInterface::class);
+        $users->method('findById')->with(42)->willReturn(
+            $this->userRow(['id' => 42, 'is_active' => 0, 'password_hash' => password_hash('Old!Passw0rd', PASSWORD_ARGON2ID)]),
+        );
+        $users->expects(self::never())->method('updatePassword');
+
+        $tokens = $this->createMock(RefreshTokenRepositoryInterface::class);
+        $tokens->expects(self::never())->method('store');
+
+        $this->expectException(ForbiddenException::class);
+        $this->service($users, $this->createMock(EmailVerificationRepositoryInterface::class), $this->createMock(QueueInterface::class), $tokens)
+            ->updateMe(UpdateMeRequest::fromArray([
+                'password' => 'New!Passw0rd1',
+                'current_password' => 'Old!Passw0rd',
+            ]), 42);
+    }
+
     public function testUpdateMeRejectsWrongCurrentPassword(): void
     {
         $users = $this->createMock(UserRepositoryInterface::class);

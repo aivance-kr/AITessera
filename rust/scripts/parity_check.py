@@ -243,6 +243,7 @@ def main() -> int:
                  for s, b in r.bases.items()}
     r.compare("PATCH is_active=false (정지)", lambda s, b: call(b, "PATCH", f"/api/v1/users/{op_ids[s]}", {"is_active": False}, token=access[s]))
     r.compare("정지 계정 refresh → 401", lambda s, b: call(b, "POST", "/api/v1/tokens/refresh", {"refresh_token": suspended[s]}))
+    r.compare("정지 계정 PATCH /me 비밀번호 → 403", lambda s, b: call(b, "PATCH", "/api/v1/me", {"password": "Ch4nged!Passw0rd", "current_password": op_base["password"]}, token=member[s]))
     r.compare("정지 계정 로그인 → 401", lambda s, b: call(b, "POST", "/api/v1/tokens", {"email": email(s, "op"), "password": op_base["password"], "affiliation": "aivance"}))
     r.compare("PATCH is_active=true (복구)", lambda s, b: call(b, "PATCH", f"/api/v1/users/{op_ids[s]}", {"is_active": True}, token=access[s]))
     r.compare("복구 후에도 폐기된 토큰은 무효", lambda s, b: call(b, "POST", "/api/v1/tokens/refresh", {"refresh_token": suspended[s]}))

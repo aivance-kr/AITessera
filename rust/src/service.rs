@@ -283,6 +283,10 @@ pub async fn update_me(state: &AppState, req: UpdateMeRequest, user_id: i64) -> 
     let user = User::from_row(row)?;
     // 비밀번호 변경 시 현재 비밀번호 검증
     if req.password.is_some() {
+        // 비밀번호 변경은 새 세션을 발급하므로, 정지된 계정이 남은 Access 토큰으로 세션을 되살리지 못하게 막는다
+        if !user.is_active {
+            return Err(AppError::Forbidden("비활성화된 계정은 이 작업을 수행할 수 없습니다.".into()));
+        }
         let ok = match &req.current_password {
             Some(current) => password_verify(current.clone(), user.password_hash.clone()).await?,
             None => false,

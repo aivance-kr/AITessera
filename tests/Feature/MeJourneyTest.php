@@ -98,6 +98,7 @@ final class MeJourneyTest extends TestCase
         self::assertSame('수정된이름', $data['name']);
         self::assertSame('010-9999-8888', $data['contact']);
         self::assertSame('새회사', $data['company']);
+        self::assertArrayNotHasKey('tokens', $data); // 비밀번호 미변경 시 새 토큰 없음
     }
 
     public function testChangesPasswordWithCorrectCurrentPassword(): void
@@ -118,6 +119,31 @@ final class MeJourneyTest extends TestCase
 
         $oldLogin = $this->handle('POST', '/api/v1/tokens', [], ['email' => $email, 'password' => self::PASSWORD, 'affiliation' => 'aivance']);
         self::assertSame(401, $oldLogin->getStatusCode());
+    }
+
+    public function testPasswordChangeEndsOtherSessionsAndReissuesCurrent(): void
+    {
+        $email = $this->seedUser('aivance');
+        $otherDevice = $this->handle('POST', '/api/v1/tokens', [], ['email' => $email, 'password' => self::PASSWORD, 'affiliation' => 'aivance']);
+        self::assertSame(201, $otherDevice->getStatusCode(), (string) $otherDevice->getBody());
+        $otherRefresh = (string) $this->decode($otherDevice)['data']['refresh_token'];
+
+        $token = $this->loginToken($email);
+        $response = $this->handle('PATCH', '/api/v1/me', $this->bearer($token), [
+            'password' => 'Ch4nged!Passw0rd',
+            'current_password' => self::PASSWORD,
+        ]);
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        /** @var array<string, mixed> $tokens */
+        $tokens = $this->decode($response)['data']['tokens'];
+        self::assertSame('Bearer', $tokens['token_type']);
+
+        // 다른 기기의 기존 리프레시 토큰은 폐기, 응답으로 받은 새 토큰은 사용 가능.
+        $stale = $this->handle('POST', '/api/v1/tokens/refresh', [], ['refresh_token' => $otherRefresh]);
+        self::assertSame(401, $stale->getStatusCode(), (string) $stale->getBody());
+
+        $fresh = $this->handle('POST', '/api/v1/tokens/refresh', [], ['refresh_token' => (string) $tokens['refresh_token']]);
+        self::assertSame(200, $fresh->getStatusCode(), (string) $fresh->getBody());
     }
 
     public function testPasswordChangeWithWrongCurrentPasswordIsRejected(): void

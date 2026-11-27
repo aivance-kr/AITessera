@@ -9,6 +9,8 @@ use App\Domain\ProfileSchema;
 use App\Domain\Request\CreateOperatorRequest;
 use App\Domain\Request\RegisterRequest;
 use App\Domain\Request\UpdateMeRequest;
+use App\Domain\TokenPair;
+use App\Domain\UpdateMeResult;
 use App\Domain\User;
 use App\Domain\UserProfile;
 use App\Domain\UserRole;
@@ -24,6 +26,7 @@ use App\Repository\RefreshTokenRepositoryInterface;
 use App\Repository\UserRepositoryInterface;
 use App\Support\Config;
 use App\Support\ConnectionInterface;
+use App\Support\JwtIssuer;
 use App\Support\Queue\QueueInterface;
 use Psr\Clock\ClockInterface;
 
@@ -45,6 +48,7 @@ final readonly class UserService
         private Config $config,
         private ClockInterface $clock,
         private ConnectionInterface $db,
+        private JwtIssuer $jwt,
     ) {
     }
 
@@ -67,7 +71,7 @@ final readonly class UserService
      * 비밀번호를 바꿀 때는 현재 비밀번호가 일치해야 한다(탈취 토큰에 의한 무단 변경 방지).
      * 수정 후 최신 프로필을 반환한다.
      */
-    public function updateMe(UpdateMeRequest $request, int $userId): UserProfile
+    public function updateMe(UpdateMeRequest $request, int $userId): UpdateMeResult
     {
         $row = $this->users->findById($userId);
         if ($row === null) {
@@ -77,6 +81,10 @@ final readonly class UserService
 
         // 비밀번호 변경 시 현재 비밀번호 검증.
         if ($request->password !== null) {
+            // 비밀번호 변경은 새 세션을 발급하므로, 정지된 계정이 남은 Access 토큰으로 세션을 되살리지 못하게 막는다
+            if (!$user->isActive) {
+                throw new ForbiddenException('비활성화된 계정은 이 작업을 수행할 수 없습니다.');
+            }
             if ($request->currentPassword === null
                 || !password_verify($request->currentPassword, $user->passwordHash)) {
                 throw new InvalidCredentialsException('현재 비밀번호가 일치하지 않습니다.');
@@ -87,16 +95,31 @@ final readonly class UserService
 
         $now = $this->clock->now();
         $password = $request->password;
-        $this->db->transaction(function () use ($userId, $fields, $password, $now): void {
+        $tokens = $this->db->transaction(function () use ($user, $fields, $password, $now): ?TokenPair {
             if ($fields !== []) {
-                $this->users->updateFields($userId, $fields, $now);
+                $this->users->updateFields($user->id, $fields, $now);
             }
-            if ($password !== null) {
-                $this->users->updatePassword($userId, password_hash($password, PASSWORD_ARGON2ID), $now);
+            if ($password === null) {
+                return null;
             }
+            $this->users->updatePassword($user->id, password_hash($password, PASSWORD_ARGON2ID), $now);
+
+            // 다른 기기 세션을 모두 끊고(삭제 — 재사용 감지 연쇄 무효화 방지), 현재 기기용 새 토큰 쌍을 발급한다
+            $this->refreshTokens->deleteAllForUser($user->id);
+
+            return $this->issueSession($user);
         });
 
-        return $this->me($userId);
+        return new UpdateMeResult($this->me($userId), $tokens);
+    }
+
+    private function issueSession(User $user): TokenPair
+    {
+        $access = $this->jwt->issueAccessToken($user->id, $user->affiliation->value, $user->role);
+        $refresh = $this->jwt->generateRefreshToken();
+        $this->refreshTokens->store($user->id, $refresh['hash'], $refresh['expiresAt']);
+
+        return new TokenPair($access, $this->jwt->accessTtl(), $refresh['token']);
     }
 
     /**

@@ -103,12 +103,7 @@ final class TokenController extends BaseController
 
     private function tokenResponse(TokenPair $pair, int $statusCode): ResponseInterface
     {
-        return $this->success([
-            'access_token' => $pair->accessToken,
-            'token_type' => 'Bearer',
-            'expires_in' => $pair->expiresIn,
-            'refresh_token' => $pair->refreshToken,
-        ], statusCode: $statusCode);
+        return $this->success($pair->toArray(), statusCode: $statusCode);
     }
 
     private function requireRefreshToken(ServerRequestInterface $request): string

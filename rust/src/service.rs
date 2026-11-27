@@ -510,8 +510,8 @@ pub async fn update_user(state: &AppState, req: UpdateUserRequest, target_id: i6
     if let Some(active) = req.is_active {
         fields.push(("is_active", FieldValue::Int(i64::from(active))));
     }
-    // 비활성화 시 기존 세션(리프레시 토큰)을 즉시 끊는다
-    let revoke_sessions = req.is_active == Some(false);
+    // 비활성화 또는 비밀번호 재설정 시 기존 세션(리프레시 토큰)을 즉시 끊는다
+    let revoke_sessions = req.is_active == Some(false) || req.password.is_some();
     apply_update(state, target_id, fields, req.password, revoke_sessions).await
 }
 

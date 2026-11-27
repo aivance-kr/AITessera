@@ -239,6 +239,11 @@ def main() -> int:
     r.compare("정지 계정 로그인 → 401", lambda s, b: call(b, "POST", "/api/v1/tokens", {"email": email(s, "op"), "password": op_base["password"], "affiliation": "aivance"}))
     r.compare("PATCH is_active=true (복구)", lambda s, b: call(b, "PATCH", f"/api/v1/users/{op_ids[s]}", {"is_active": True}, token=access[s]))
     r.compare("복구 후에도 폐기된 토큰은 무효", lambda s, b: call(b, "POST", "/api/v1/tokens/refresh", {"refresh_token": suspended[s]}))
+    # 운영자 비밀번호 재설정 시 기존 리프레시 토큰 전체 폐기
+    before_reset = {s: login(b, {"email": email(s, "op"), "password": op_base["password"], "affiliation": "aivance"})["refresh_token"]
+                    for s, b in r.bases.items()}
+    r.compare("PATCH password 재설정", lambda s, b: call(b, "PATCH", f"/api/v1/users/{op_ids[s]}", {"password": op_base["password"]}, token=access[s]))
+    r.compare("재설정 전 refresh 토큰 → 401", lambda s, b: call(b, "POST", "/api/v1/tokens/refresh", {"refresh_token": before_reset[s]}))
     r.compare("DELETE /tokens 없는 토큰(멱등)", lambda s, b: call(b, "DELETE", "/api/v1/tokens", {"refresh_token": "nope"}))
     r.compare("DELETE /tokens 누락", lambda s, b: call(b, "DELETE", "/api/v1/tokens", {}))
     r.compare("DELETE /me 비밀번호 누락", lambda s, b: call(b, "DELETE", "/api/v1/me", {}, token=member[s]))

@@ -223,11 +223,23 @@ final class AdminUserJourneyTest extends TestCase
         $memberId = $this->userId($memberEmail);
         $newPassword = 'Reset3d!Passw0rd';
 
+        $memberLogin = $this->handle('POST', '/api/v1/tokens', [], [
+            'email' => $memberEmail,
+            'password' => self::PASSWORD,
+            'affiliation' => 'aivance',
+        ]);
+        self::assertSame(201, $memberLogin->getStatusCode(), (string) $memberLogin->getBody());
+        $refreshToken = (string) $this->decode($memberLogin)['data']['refresh_token'];
+
         $token = $this->loginToken($operatorEmail);
         $update = $this->handle('PATCH', "/api/v1/users/{$memberId}", $this->bearer($token), [
             'password' => $newPassword,
         ]);
         self::assertSame(200, $update->getStatusCode(), (string) $update->getBody());
+
+        // 재설정 전 발급된 리프레시 토큰은 폐기되어야 한다.
+        $refresh = $this->handle('POST', '/api/v1/tokens/refresh', [], ['refresh_token' => $refreshToken]);
+        self::assertSame(401, $refresh->getStatusCode(), (string) $refresh->getBody());
 
         // 새 비밀번호로 로그인 가능해야 한다.
         $login = $this->handle('POST', '/api/v1/tokens', [], ['email' => $memberEmail, 'password' => $newPassword, 'affiliation' => 'aivance']);

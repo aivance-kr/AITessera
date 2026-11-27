@@ -115,8 +115,8 @@ final readonly class UserAdminService
             if ($password !== null) {
                 $this->users->updatePassword($targetId, password_hash($password, PASSWORD_ARGON2ID), $now);
             }
-            // 비활성화 시 기존 세션(리프레시 토큰)을 즉시 끊는다
-            if (($fields['is_active'] ?? null) === 0) {
+            // 비활성화 또는 비밀번호 재설정 시 기존 세션(리프레시 토큰)을 즉시 끊는다
+            if ($password !== null || ($fields['is_active'] ?? null) === 0) {
                 $this->refreshTokens->revokeAllForUser($targetId, $now);
             }
         });

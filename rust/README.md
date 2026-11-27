@@ -20,7 +20,7 @@ rust/
 ├── Cargo.toml
 ├── static/openapi.json     # PHP 어트리뷰트에서 생성한 스펙 스냅샷 (컴파일 시 내장)
 ├── scripts/
-│   ├── parity_check.py     # PHP ↔ Rust 응답 동등성 검사 (81개 시나리오)
+│   ├── parity_check.py     # PHP ↔ Rust 응답 동등성 검사 (83개 시나리오)
 │   ├── bench.sh            # 부하 비교 (oha 또는 ab)
 │   └── dump_openapi.php    # openapi.json 스냅샷 재생성
 └── src/
@@ -78,7 +78,7 @@ python3 rust/scripts/parity_check.py --php http://127.0.0.1:18305 --rust http://
 
 > `php -S` 에서는 상대 경로 키(`var/keys/...`)가 `public/` 기준으로 해석돼 부팅이 실패하므로 절대 경로를 넘긴다.
 
-최근 결과: **81 통과 / 0 불일치 / 0 알려진 차이** — 상호 운용(PHP 발급 토큰을 Rust 가, Rust 발급 토큰을 PHP 가 검증) 포함.
+최근 결과: **83 통과 / 0 불일치 / 0 알려진 차이** — 상호 운용(PHP 발급 토큰을 Rust 가, Rust 발급 토큰을 PHP 가 검증) 포함.
 
 ## 부하 비교
 

@@ -179,6 +179,43 @@ final class AdminUserJourneyTest extends TestCase
         self::assertSame('수정된이름', $data['name']);
     }
 
+    public function testListSearchMatchesEmailOrName(): void
+    {
+        $operatorEmail = $this->seedUser('aivance', 1);
+        $memberEmail = $this->seedUser('aivance', 3);
+
+        $token = $this->loginToken($operatorEmail);
+        $response = $this->handle('GET', '/api/v1/users?q=' . rawurlencode($memberEmail), $this->bearer($token));
+
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+        /** @var list<array<string, mixed>> $items */
+        $items = $this->decode($response)['data'];
+        self::assertSame([$memberEmail], array_column($items, 'email'));
+    }
+
+    public function testDeactivatingMemberRevokesRefreshTokens(): void
+    {
+        $operatorEmail = $this->seedUser('aivance', 1);
+        $memberEmail = $this->seedUser('aivance', 3);
+        $memberId = $this->userId($memberEmail);
+
+        $memberLogin = $this->handle('POST', '/api/v1/tokens', [], [
+            'email' => $memberEmail,
+            'password' => self::PASSWORD,
+            'affiliation' => 'aivance',
+        ]);
+        self::assertSame(201, $memberLogin->getStatusCode(), (string) $memberLogin->getBody());
+        $refreshToken = (string) $this->decode($memberLogin)['data']['refresh_token'];
+
+        $token = $this->loginToken($operatorEmail);
+        $update = $this->handle('PATCH', "/api/v1/users/{$memberId}", $this->bearer($token), ['is_active' => false]);
+        self::assertSame(200, $update->getStatusCode(), (string) $update->getBody());
+
+        // 정지된 회원의 기존 리프레시 토큰으로는 더 이상 갱신할 수 없다.
+        $refresh = $this->handle('POST', '/api/v1/tokens/refresh', [], ['refresh_token' => $refreshToken]);
+        self::assertSame(401, $refresh->getStatusCode(), (string) $refresh->getBody());
+    }
+
     public function testOperatorResetsMemberPassword(): void
     {
         $operatorEmail = $this->seedUser('aivance', 1);

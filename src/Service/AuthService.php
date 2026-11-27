@@ -115,6 +115,13 @@ final readonly class AuthService
         }
         $user = User::fromRow($userRow);
 
+        // 비활성(정지) 계정은 세션을 연장할 수 없다 — 남은 리프레시 토큰도 모두 폐기
+        if (!$user->isActive) {
+            $this->refreshTokens->revokeAllForUser($user->id, $now);
+
+            throw new InvalidTokenException();
+        }
+
         // 회전: 이전 토큰 폐기 + 새 토큰 발급을 하나의 트랜잭션으로
         return $this->db->transaction(function () use ($token, $user, $now): TokenPair {
             $this->refreshTokens->revoke($token->id, $now);

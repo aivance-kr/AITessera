@@ -20,7 +20,7 @@ rust/
 ├── Cargo.toml
 ├── static/openapi.json     # PHP 어트리뷰트에서 생성한 스펙 스냅샷 (컴파일 시 내장)
 ├── scripts/
-│   ├── parity_check.py     # PHP ↔ Rust 응답 동등성 검사 (76개 시나리오)
+│   ├── parity_check.py     # PHP ↔ Rust 응답 동등성 검사 (81개 시나리오)
 │   ├── bench.sh            # 부하 비교 (oha 또는 ab)
 │   └── dump_openapi.php    # openapi.json 스냅샷 재생성
 └── src/
@@ -78,7 +78,7 @@ python3 rust/scripts/parity_check.py --php http://127.0.0.1:18305 --rust http://
 
 > `php -S` 에서는 상대 경로 키(`var/keys/...`)가 `public/` 기준으로 해석돼 부팅이 실패하므로 절대 경로를 넘긴다.
 
-최근 결과: **75 통과 / 0 불일치 / 1 알려진 차이** — 상호 운용(PHP 발급 토큰을 Rust 가, Rust 발급 토큰을 PHP 가 검증) 포함.
+최근 결과: **81 통과 / 0 불일치 / 0 알려진 차이** — 상호 운용(PHP 발급 토큰을 Rust 가, Rust 발급 토큰을 PHP 가 검증) 포함.
 
 ## 부하 비교
 
@@ -113,7 +113,6 @@ PHP_URL=http://127.0.0.1:18305 RUST_URL=http://127.0.0.1:18306 REQUESTS=2000 CON
 
 | 항목 | 내용 |
 |------|------|
-| **PHP 버그** `GET /api/v1/users?q=...` | PHP `UserRepository::buildListWhere` 가 `:search` 이름 플레이스홀더를 두 번 써서, `ATTR_EMULATE_PREPARES=false` 에서 PDO `HY093` → **500**. Rust 는 정상 검색(200). PHP 쪽 수정 필요 |
 | 레이트 리밋 상태 | 알고리즘은 같지만 Redis 키(`ratelimit:rust:*`)가 별도라 전환 시점에 카운터가 이어지지 않는다(최대 1분 영향) |
 | multipart 본문 | PHP 는 `multipart/form-data` POST 를 `$_POST` 로 파싱하지만 Rust 는 빈 입력으로 처리 (현재 클라이언트는 JSON 만 사용) |
 | `logged_at` 검증 | Respect `DateTime()`=`strtotime()` 의 자연어 표현 전부는 재현하지 않고 ISO-8601·`Y-m-d H:i:s`·날짜·`@ts`·now/today 등 실사용 형식만 허용 |

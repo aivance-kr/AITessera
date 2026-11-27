@@ -12,6 +12,7 @@ use App\Domain\User;
 use App\Exception\ForbiddenException;
 use App\Exception\NotFoundException;
 use App\Exception\ValidationException;
+use App\Repository\RefreshTokenRepositoryInterface;
 use App\Repository\UserRepositoryInterface;
 use App\Support\ConnectionInterface;
 use Psr\Clock\ClockInterface;
@@ -27,6 +28,7 @@ final readonly class UserAdminService
 {
     public function __construct(
         private UserRepositoryInterface $users,
+        private RefreshTokenRepositoryInterface $refreshTokens,
         private ConnectionInterface $db,
         private ClockInterface $clock,
     ) {
@@ -112,6 +114,10 @@ final readonly class UserAdminService
             }
             if ($password !== null) {
                 $this->users->updatePassword($targetId, password_hash($password, PASSWORD_ARGON2ID), $now);
+            }
+            // 비활성화 시 기존 세션(리프레시 토큰)을 즉시 끊는다
+            if (($fields['is_active'] ?? null) === 0) {
+                $this->refreshTokens->revokeAllForUser($targetId, $now);
             }
         });
     }

@@ -206,9 +206,7 @@ def main() -> int:
             res = call(b, "GET", "/api/v1/users" + q.replace(stamp, f"{s}-{stamp}"), token=access[s])
             # 공유 DB 라 total 은 서버마다 같아야 한다 — 목록 항목 내용까지 비교
             return res
-        known = ("PHP 버그: UserRepository 가 :search 플레이스홀더를 두 번 써서 PDO HY093 → 500. "
-                 "Rust 는 정상 동작") if "q=" in q else None
-        r.compare(f"GET /users{q or ' (기본)'}", lst, known_diff=known)
+        r.compare(f"GET /users{q or ' (기본)'}", lst)
     admin_ids = {s: json.loads(call(b, "GET", "/api/v1/me", token=access[s])[2])["data"]["id"] for s, b in r.bases.items()}
     op_ids = {s: json.loads(call(b, "GET", "/api/v1/me", token=member[s])[2])["data"]["id"] for s, b in r.bases.items()}
     r.compare("GET /users/{admin}", lambda s, b: call(b, "GET", f"/api/v1/users/{admin_ids[s]}", token=access[s]))
@@ -233,6 +231,14 @@ def main() -> int:
     r.compare("POST /tokens/refresh 무효", lambda s, b: call(b, "POST", "/api/v1/tokens/refresh", {"refresh_token": "nope"}))
     r.compare("POST /tokens/refresh 성공", lambda s, b: call(b, "POST", "/api/v1/tokens/refresh", {"refresh_token": refresh[s]}))
     r.compare("POST /tokens/refresh 재사용 → 전체 무효화", lambda s, b: call(b, "POST", "/api/v1/tokens/refresh", {"refresh_token": refresh[s]}))
+    # 정지된 계정은 refresh 로 세션을 연장할 수 없다 — 비활성화 시 리프레시 토큰 전체 폐기
+    suspended = {s: login(b, {"email": email(s, "op"), "password": op_base["password"], "affiliation": "aivance"})["refresh_token"]
+                 for s, b in r.bases.items()}
+    r.compare("PATCH is_active=false (정지)", lambda s, b: call(b, "PATCH", f"/api/v1/users/{op_ids[s]}", {"is_active": False}, token=access[s]))
+    r.compare("정지 계정 refresh → 401", lambda s, b: call(b, "POST", "/api/v1/tokens/refresh", {"refresh_token": suspended[s]}))
+    r.compare("정지 계정 로그인 → 401", lambda s, b: call(b, "POST", "/api/v1/tokens", {"email": email(s, "op"), "password": op_base["password"], "affiliation": "aivance"}))
+    r.compare("PATCH is_active=true (복구)", lambda s, b: call(b, "PATCH", f"/api/v1/users/{op_ids[s]}", {"is_active": True}, token=access[s]))
+    r.compare("복구 후에도 폐기된 토큰은 무효", lambda s, b: call(b, "POST", "/api/v1/tokens/refresh", {"refresh_token": suspended[s]}))
     r.compare("DELETE /tokens 없는 토큰(멱등)", lambda s, b: call(b, "DELETE", "/api/v1/tokens", {"refresh_token": "nope"}))
     r.compare("DELETE /tokens 누락", lambda s, b: call(b, "DELETE", "/api/v1/tokens", {}))
     r.compare("DELETE /me 비밀번호 누락", lambda s, b: call(b, "DELETE", "/api/v1/me", {}, token=member[s]))

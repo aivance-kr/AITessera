@@ -151,6 +151,12 @@ pub async fn refresh(state: &AppState, refresh_token: &str) -> AppResult<TokenPa
         .ok_or_else(AppError::invalid_token)?;
     let user = User::from_row(user)?;
 
+    // 비활성(정지) 계정은 세션을 연장할 수 없다 — 남은 리프레시 토큰도 모두 폐기
+    if !user.is_active {
+        repo::revoke_all_refresh_tokens(&state.db, user.id, now).await?;
+        return Err(AppError::invalid_token());
+    }
+
     // 회전: 이전 토큰 폐기 + 새 토큰 발급을 하나의 트랜잭션으로
     let mut tx = state.db.begin().await?;
     repo::revoke_refresh_token(&mut *tx, token.id as i64, now).await?;
@@ -234,6 +240,7 @@ async fn apply_update(
     user_id: i64,
     fields: Vec<(&'static str, FieldValue)>,
     password: Option<String>,
+    revoke_sessions: bool,
 ) -> AppResult<()> {
     let hash = match password {
         Some(pw) => Some(password_hash(pw).await?),
@@ -246,6 +253,9 @@ async fn apply_update(
     }
     if let Some(hash) = hash {
         repo::update_password(&mut *tx, user_id, &hash, now).await?;
+    }
+    if revoke_sessions {
+        repo::revoke_all_refresh_tokens(&mut *tx, user_id, now).await?;
     }
     tx.commit().await?;
     Ok(())
@@ -267,7 +277,7 @@ pub async fn update_me(state: &AppState, req: UpdateMeRequest, user_id: i64) -> 
         }
     }
     let fields = common_fields(&req.common, user.affiliation)?;
-    apply_update(state, user_id, fields, req.password).await?;
+    apply_update(state, user_id, fields, req.password, false).await?;
     me(state, user_id).await
 }
 
@@ -500,7 +510,9 @@ pub async fn update_user(state: &AppState, req: UpdateUserRequest, target_id: i6
     if let Some(active) = req.is_active {
         fields.push(("is_active", FieldValue::Int(i64::from(active))));
     }
-    apply_update(state, target_id, fields, req.password).await
+    // 비활성화 시 기존 세션(리프레시 토큰)을 즉시 끊는다
+    let revoke_sessions = req.is_active == Some(false);
+    apply_update(state, target_id, fields, req.password, revoke_sessions).await
 }
 
 // ───────────────────────────── LogService ─────────────────────────────

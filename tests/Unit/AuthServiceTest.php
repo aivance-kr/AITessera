@@ -207,6 +207,27 @@ final class AuthServiceTest extends TestCase
         $this->service($users, $tokens)->refresh($plain);
     }
 
+    public function testRefreshForInactiveUserRevokesAllAndThrows(): void
+    {
+        $tokenRow = [
+            'id' => 7,
+            'user_id' => 42,
+            'expires_at' => '2026-07-19 12:00:00',
+            'revoked_at' => null,
+        ];
+
+        $tokens = $this->createMock(RefreshTokenRepositoryInterface::class);
+        $tokens->method('findByHash')->willReturn($tokenRow);
+        $tokens->expects(self::once())->method('revokeAllForUser')->with(42);
+        $tokens->expects(self::never())->method('store');
+
+        $users = $this->createMock(UserRepositoryInterface::class);
+        $users->method('findById')->willReturn($this->userRow(['is_active' => 0]));
+
+        $this->expectException(InvalidTokenException::class);
+        $this->service($users, $tokens)->refresh('suspended-user-token');
+    }
+
     public function testRefreshWithExpiredTokenThrows(): void
     {
         $tokenRow = [

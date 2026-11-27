@@ -287,6 +287,14 @@ production server. Defined in: `.github/workflows/deploy.yml`.
 - **Job runner**: runs on the same organization self-hosted runner as CI (`runs-on: [self-hosted, Linux, X64]`)
 - **Target**: a single Ubuntu + Apache + PHP-FPM (`php8.5-fpm`) server (deployed via SSH using appleboy/ssh-action — the deploy target server is separate from this job runner)
 
+### Rust port build (on the runner, before SSH)
+
+The production server has **no Rust toolchain (cargo)** and must not need one. When the commit has
+`rust/Cargo.lock`, the deploy job builds `cargo build --release --locked` on the runner, then uploads
+the binary with plain `scp` (not `appleboy/scp-action` — a Docker container action cannot see the
+runner workspace) to `<DEPLOY_PATH>/rust/target/release/aitessera.new`. A build failure aborts the
+deploy before the server is touched. Commits without `rust/` skip these steps.
+
 ### Deployment procedure (executed via SSH on the server)
 
 1. `git reset --hard origin/main` — bring in the latest main
@@ -295,7 +303,11 @@ production server. Defined in: `.github/workflows/deploy.yml`.
 4. `php bin/console migrate` — grep the output for exceptions and `exit 1` to abort the deploy if found
 5. Clear caches (OPcache / Redis application cache)
 6. `sudo -n systemctl reload apache2` + reload the running `php*-fpm` service — zero downtime, refreshes OPcache (an FPM reload failure only logs a warning)
-7. **Slack notification** — after the SSH deploy steps (1-6) finish, the GitHub Actions runner sends
+7. Swap the Rust binary — `ldd` the uploaded `.new` (abort if a library/`GLIBC_x.y` is `not found`,
+   i.e. the runner's glibc is newer than the server's), then `mv -f` it into place; restart
+   `aitessera-rust.service` only if that unit exists (needs a sudoers NOPASSWD entry for
+   `systemctl restart aitessera-rust`)
+8. **Slack notification** — after the SSH deploy steps (1-7) finish, the GitHub Actions runner sends
    the result to an Incoming Webhook (`SLACK_WEBHOOK_URL`) in separate success (`if: success()`) and
    failure (`if: failure()`) steps
 

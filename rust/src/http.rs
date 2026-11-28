@@ -6,7 +6,7 @@
 //! 토큰 없이 존재하지 않는 경로를 호출하면 404 가 아니라 401 이 되는 점까지 같다.
 
 use std::borrow::Cow;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use axum::body::{Body, Bytes};
 use axum::extract::{ConnectInfo, FromRequest, Path, RawQuery, Request, State};
@@ -209,13 +209,37 @@ fn is_digits(s: &str) -> bool {
     !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
 }
 
-/// REMOTE_ADDR 만 신뢰한다 (X-Forwarded-For 미사용 — PHP 와 동일 정책).
+const X_FORWARDED_FOR: &str = "x-forwarded-for";
+
+/// 레이트 리밋 키·로그인 이벤트에 쓰는 클라이언트 IP.
 /// 문자열로 바꾸지 않고 `IpAddr` 그대로 넘긴다 — 키 조립 시 한 번만 포맷된다.
-fn client_ip(req: &Request) -> std::net::IpAddr {
-    req.extensions().get::<ConnectInfo<SocketAddr>>().map_or(
-        std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
-        |ConnectInfo(addr)| addr.ip(),
-    )
+fn client_ip(req: &Request) -> IpAddr {
+    let peer = req
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ConnectInfo(addr)| addr.ip());
+    resolve_client_ip(peer, req.headers())
+}
+
+/// 운영에서는 같은 서버의 Apache(mod_proxy)가 앞에 있어 소켓 상대가 항상 루프백이다.
+/// 그래서 상대가 루프백일 때만 `X-Forwarded-For` 의 **마지막 값**을 신뢰한다 —
+/// Apache 는 실제 접속 IP 를 헤더 끝에 덧붙이므로 마지막 값은 클라이언트가 위조할 수 없고,
+/// 앞쪽 값은 클라이언트가 보낸 것일 수 있다. 그 밖의 경우는 소켓 주소(PHP 의 REMOTE_ADDR)를 쓴다.
+fn resolve_client_ip(peer: Option<IpAddr>, headers: &HeaderMap) -> IpAddr {
+    let Some(peer) = peer else {
+        return IpAddr::V4(Ipv4Addr::UNSPECIFIED);
+    };
+    if !peer.is_loopback() {
+        return peer;
+    }
+    headers
+        .get_all(X_FORWARDED_FOR)
+        .iter()
+        .next_back()
+        .and_then(|v| v.to_str().ok())
+        .and_then(|line| line.rsplit(',').next())
+        .and_then(|last| last.trim().parse::<IpAddr>().ok())
+        .unwrap_or(peer)
 }
 
 /// PSR-7 `getHeaderLine()` — 같은 이름의 헤더를 ", " 로 결합.
@@ -365,7 +389,7 @@ async fn token_issue(
 ) -> AppResult<Response> {
     let dto = LoginRequest::from_input(&input)?;
     let ctx = LoginContext {
-        ip: addr.ip().to_string(),
+        ip: resolve_client_ip(Some(addr.ip()), &headers).to_string(),
         user_agent: header_line(&headers, header::USER_AGENT).into_owned(),
     };
     let pair = service::login(&state, dto, ctx).await?;
@@ -593,3 +617,96 @@ const DOCS_HTML: &str = r#"<!DOCTYPE html>
   ></rapi-doc>
 </body>
 </html>"#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv6Addr;
+
+    fn headers_with_xff(values: &[&str]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for v in values {
+            headers.append(X_FORWARDED_FOR, HeaderValue::from_str(v).unwrap());
+        }
+        headers
+    }
+
+    fn ip(s: &str) -> IpAddr {
+        s.parse().unwrap()
+    }
+
+    #[test]
+    fn 루프백_프록시면_xff_마지막_값을_쓴다() {
+        let headers = headers_with_xff(&["203.0.113.7"]);
+        assert_eq!(
+            resolve_client_ip(Some(ip("127.0.0.1")), &headers),
+            ip("203.0.113.7")
+        );
+    }
+
+    #[test]
+    fn 클라이언트가_넣은_앞쪽_값은_무시한다() {
+        // 클라이언트가 위조한 값 뒤에 Apache 가 실제 접속 IP 를 덧붙인다
+        let headers = headers_with_xff(&["1.2.3.4, 203.0.113.7"]);
+        assert_eq!(
+            resolve_client_ip(Some(ip("127.0.0.1")), &headers),
+            ip("203.0.113.7")
+        );
+    }
+
+    #[test]
+    fn 헤더가_여러_줄이면_마지막_줄의_마지막_값을_쓴다() {
+        let headers = headers_with_xff(&["1.2.3.4", "5.6.7.8 , 203.0.113.7 "]);
+        assert_eq!(
+            resolve_client_ip(Some(ip("::1")), &headers),
+            ip("203.0.113.7")
+        );
+    }
+
+    #[test]
+    fn ipv6_클라이언트도_처리한다() {
+        let headers = headers_with_xff(&["2001:db8::1"]);
+        assert_eq!(
+            resolve_client_ip(Some(ip("127.0.0.1")), &headers),
+            ip("2001:db8::1")
+        );
+    }
+
+    #[test]
+    fn 루프백이_아닌_peer_는_xff_를_무시한다() {
+        let headers = headers_with_xff(&["1.2.3.4"]);
+        assert_eq!(
+            resolve_client_ip(Some(ip("198.51.100.9")), &headers),
+            ip("198.51.100.9")
+        );
+    }
+
+    #[test]
+    fn 루프백인데_헤더가_없으면_peer_를_쓴다() {
+        assert_eq!(
+            resolve_client_ip(Some(ip("127.0.0.1")), &HeaderMap::new()),
+            IpAddr::V4(Ipv4Addr::LOCALHOST)
+        );
+    }
+
+    #[test]
+    fn 마지막_값이_ip_가_아니면_peer_를_쓴다() {
+        for bad in ["unknown", "203.0.113.7:4321", "1.2.3.4, ", ""] {
+            let headers = headers_with_xff(&[bad]);
+            assert_eq!(
+                resolve_client_ip(Some(ip("::1")), &headers),
+                IpAddr::V6(Ipv6Addr::LOCALHOST),
+                "값: {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn peer_를_모르면_미지정_주소() {
+        let headers = headers_with_xff(&["203.0.113.7"]);
+        assert_eq!(
+            resolve_client_ip(None, &headers),
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+        );
+    }
+}

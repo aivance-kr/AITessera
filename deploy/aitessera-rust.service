@@ -1,0 +1,35 @@
+# AITessera Rust(Axum) API 서버 — systemd 유닛 원본
+#
+# 이 파일이 원본이다. 서버에는 복사하지 않고 링크만 건다:
+#   sudo systemctl link /home/aitessera/AITessera/deploy/aitessera-rust.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now aitessera-rust
+# 이 파일을 바꾼 배포 뒤에는 서버에서 `sudo systemctl daemon-reload` 가 필요하다.
+# 절차 전체: docs/2026-11-28-rust-production-cutover.md
+
+[Unit]
+Description=AITessera Rust API server
+After=network-online.target mysql.service redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aitessera
+Group=aitessera
+# .env 는 현재 디렉터리부터 위로 찾는다 — 저장소 루트의 운영 .env 를 그대로 읽게 한다
+WorkingDirectory=/home/aitessera/AITessera
+ExecStart=/home/aitessera/AITessera/rust/target/release/aitessera
+Environment=RUST_BIND_ADDR=127.0.0.1:8306
+# PHP(CLI·FPM) date.timezone 이 UTC 라 같은 값으로 고정한다. 다르면 DATETIME 문자열이 어긋난다.
+Environment=APP_TIMEZONE=UTC
+Environment=RUST_LOG=info,sqlx=warn
+# 서버는 Ctrl-C(SIGINT) 만 graceful shutdown 으로 처리한다. 기본 SIGTERM 이면 처리 중 요청이 끊긴다.
+KillSignal=SIGINT
+TimeoutStopSec=15
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

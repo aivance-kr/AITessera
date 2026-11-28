@@ -22,6 +22,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use axum::extract::Request;
+use axum::serve::ListenerExt;
 use axum::ServiceExt;
 use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions};
 use tower::Layer;
@@ -65,6 +66,12 @@ async fn main() -> anyhow::Result<()> {
         .max_connections(config.db_pool_max)
         .min_connections(1)
         .acquire_timeout(Duration::from_secs(5))
+        // sqlx 기본값은 풀에서 연결을 꺼낼 때마다 PING 왕복을 한 번 더 한다 — 쿼리 1개짜리 요청에서
+        // DB 왕복이 2배가 된다. 끊긴 연결은 idle_timeout·max_lifetime 으로 MySQL wait_timeout(기본 8시간)
+        // 전에 정리되고, 그래도 끊겨 있으면 해당 쿼리가 오류로 끝난다(PHP PDO 와 같은 동작).
+        .test_before_acquire(false)
+        .idle_timeout(Duration::from_secs(300))
+        .max_lifetime(Duration::from_secs(1800))
         .connect_lazy_with(connect);
 
     let (queue, limiter) = if config.is_testing() {
@@ -96,7 +103,12 @@ async fn main() -> anyhow::Result<()> {
     // 끝 슬래시 정규화는 라우팅 전에 적용되도록 Router 바깥에 둔다
     let app = NormalizePathLayer::trim_trailing_slash().layer(http::router(state));
 
-    let listener = tokio::net::TcpListener::bind(&bind).await?;
+    // TCP_NODELAY — 작은 JSON 응답이 Nagle 지연(지연 ACK 와 맞물려 최대 수십 ms)에 묶이지 않게 한다
+    let listener = tokio::net::TcpListener::bind(&bind).await?.tap_io(|tcp| {
+        if let Err(err) = tcp.set_nodelay(true) {
+            tracing::trace!("TCP_NODELAY 설정 실패: {err:#}");
+        }
+    });
     tracing::info!("AITessera (rust) listening on http://{bind}");
     axum::serve(
         listener,

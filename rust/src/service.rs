@@ -2,7 +2,8 @@
 //! 트랜잭션 경계·예외 종류·메시지는 PHP 구현과 같다.
 
 use chrono::{Duration, NaiveDateTime};
-use serde_json::{json, Map, Value};
+use serde::Serialize;
+use serde_json::{json, Value};
 
 use crate::domain::{
     validate_profile, Affiliation, CreateOperatorRequest, LogRequest, LoginRequest, PatchCommon,
@@ -13,30 +14,22 @@ use crate::infra::{password_hash, password_verify};
 use crate::jwt::{random_token, sha256_hex};
 use crate::php;
 use crate::repo::{self, FieldValue, ListFilter, ListRow, ManageRow, NewUser, ProfileRow, UserRow};
+use crate::response::{ser_datetime, ser_opt_datetime};
 use crate::state::AppState;
 
 pub const LOGIN_EVENT_QUEUE: &str = "login_event_queue";
 pub const MAIL_QUEUE: &str = "mail_queue";
 pub const LOG_QUEUE: &str = "log_queue";
 
-const DATE_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
+pub const DATE_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
 
+/// 표준 토큰 응답 본문 (PHP `TokenPair::toArray`) — 필드 순서가 JSON 키 순서다
+#[derive(Serialize)]
 pub struct TokenPair {
     pub access_token: String,
+    pub token_type: &'static str,
     pub expires_in: i64,
     pub refresh_token: String,
-}
-
-impl TokenPair {
-    /// 표준 토큰 응답 본문 (PHP `TokenPair::toArray`)
-    pub fn to_json(&self) -> Value {
-        json!({
-            "access_token": self.access_token,
-            "token_type": "Bearer",
-            "expires_in": self.expires_in,
-            "refresh_token": self.refresh_token,
-        })
-    }
 }
 
 pub struct LoginContext {
@@ -69,12 +62,9 @@ impl User {
     }
 }
 
-/// `Rows::nullableString`
-fn nullable_string(v: Option<String>) -> Value {
-    match v {
-        Some(s) if !s.is_empty() => Value::String(s),
-        _ => Value::Null,
-    }
+/// `Rows::nullableString` — 빈 문자열은 null
+fn nullable_string(v: Option<String>) -> Option<String> {
+    v.filter(|s| !s.is_empty())
 }
 
 /// `Rows::decodeJsonObject` + `$profile === [] ? null : $profile`
@@ -89,6 +79,70 @@ fn profile_value(v: Option<Value>) -> Value {
 
 fn fmt(dt: NaiveDateTime) -> String {
     dt.format(DATE_FORMAT).to_string()
+}
+
+// ───────────────────────────── 응답 뷰 ─────────────────────────────
+// 필드 선언 순서 = PHP 배열 키 순서. Value 트리 대신 바로 직렬화한다.
+
+/// /me 응답 (PHP `UserService::profile`)
+#[derive(Serialize)]
+pub struct ProfileView {
+    id: u64,
+    email: String,
+    name: String,
+    affiliation: &'static str,
+    role: i64,
+    contact: String,
+    company: Option<String>,
+    profile: Value,
+    email_verified: bool,
+    #[serde(serialize_with = "ser_datetime")]
+    created_at: NaiveDateTime,
+    /// 비밀번호 변경 시에만 덧붙는 새 토큰 쌍
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tokens: Option<TokenPair>,
+}
+
+/// 회원 목록 항목
+#[derive(Serialize)]
+pub struct ListItem {
+    id: u64,
+    email: String,
+    name: String,
+    affiliation: &'static str,
+    role: i64,
+    is_active: bool,
+    email_verified: bool,
+    #[serde(serialize_with = "ser_datetime")]
+    created_at: NaiveDateTime,
+}
+
+/// AdminUserView::toArray
+#[derive(Serialize)]
+pub struct ManageView {
+    id: u64,
+    email: String,
+    name: String,
+    affiliation: &'static str,
+    role: i64,
+    is_active: bool,
+    contact: Option<String>,
+    company: Option<String>,
+    profile: Value,
+    email_verified: bool,
+    #[serde(serialize_with = "ser_opt_datetime")]
+    last_login_at: Option<NaiveDateTime>,
+    #[serde(serialize_with = "ser_datetime")]
+    created_at: NaiveDateTime,
+}
+
+/// 목록 응답 meta (페이지네이션 4필드)
+#[derive(Serialize)]
+pub struct PageMeta {
+    page: i64,
+    per_page: i64,
+    total: i64,
+    last_page: i64,
 }
 
 /// 저장용 프로필 JSON — 빈 프로필은 NULL (PHP json_encode JSON_UNESCAPED_UNICODE)
@@ -126,8 +180,11 @@ async fn login_inner(state: &AppState, req: LoginRequest) -> AppResult<TokenPair
     if !user.email_verified {
         return Err(AppError::email_not_verified());
     }
-    let pair = issue_pair(state, &state.db, user.id, user.affiliation, user.role).await?;
-    repo::update_last_login(&state.db, user.id, state.now()).await?;
+    // 토큰 저장과 최종 로그인 시각 갱신은 서로 독립 — 동시에 보낸다
+    let (pair, ()) = tokio::try_join!(
+        issue_pair(state, &state.db, user.id, user.affiliation, user.role),
+        repo::update_last_login(&state.db, user.id, state.now()),
+    )?;
     Ok(pair)
 }
 
@@ -234,6 +291,7 @@ async fn issue_pair(
     repo::store_refresh_token(db, user_id, &sha256_hex(&refresh), expires_at).await?;
     Ok(TokenPair {
         access_token: access,
+        token_type: "Bearer",
         expires_in: state.jwt.access_ttl(),
         refresh_token: refresh,
     })
@@ -241,26 +299,27 @@ async fn issue_pair(
 
 // ───────────────────────────── UserService ─────────────────────────────
 
-fn profile_to_json(row: ProfileRow) -> AppResult<Value> {
-    Ok(json!({
-        "id": row.id,
-        "email": row.email,
-        "name": row.name,
-        "affiliation": Affiliation::from_db(&row.affiliation)?.as_str(),
-        "role": UserRole::from_db(i64::from(row.role))?.value(),
-        "contact": row.contact,
-        "company": nullable_string(row.company),
-        "profile": profile_value(row.profile),
-        "email_verified": row.email_verified_at.is_some(),
-        "created_at": fmt(row.created_at),
-    }))
+fn profile_view(row: ProfileRow) -> AppResult<ProfileView> {
+    Ok(ProfileView {
+        id: row.id,
+        affiliation: Affiliation::from_db(&row.affiliation)?.as_str(),
+        role: UserRole::from_db(i64::from(row.role))?.value(),
+        email: row.email,
+        name: row.name,
+        contact: row.contact,
+        company: nullable_string(row.company),
+        profile: profile_value(row.profile),
+        email_verified: row.email_verified_at.is_some(),
+        created_at: row.created_at,
+        tokens: None,
+    })
 }
 
-pub async fn me(state: &AppState, user_id: i64) -> AppResult<Value> {
+pub async fn me(state: &AppState, user_id: i64) -> AppResult<ProfileView> {
     let row = repo::find_profile_by_id(&state.db, user_id)
         .await?
         .ok_or_else(|| AppError::NotFound("사용자를 찾을 수 없습니다.".into()))?;
-    profile_to_json(row)
+    profile_view(row)
 }
 
 /// 공통 PATCH 필드 → UPDATE 컬럼 (name·contact·company·profile)
@@ -317,7 +376,11 @@ async fn apply_update(
     Ok(())
 }
 
-pub async fn update_me(state: &AppState, req: UpdateMeRequest, user_id: i64) -> AppResult<Value> {
+pub async fn update_me(
+    state: &AppState,
+    req: UpdateMeRequest,
+    user_id: i64,
+) -> AppResult<ProfileView> {
     let row = repo::find_by_id(&state.db, user_id)
         .await?
         .ok_or_else(|| AppError::NotFound("사용자를 찾을 수 없습니다.".into()))?;
@@ -362,9 +425,7 @@ pub async fn update_me(state: &AppState, req: UpdateMeRequest, user_id: i64) -> 
     tx.commit().await?;
 
     let mut profile = me(state, user_id).await?;
-    if let (Some(pair), Some(obj)) = (tokens, profile.as_object_mut()) {
-        obj.insert("tokens".into(), pair.to_json());
-    }
+    profile.tokens = tokens;
     Ok(profile)
 }
 
@@ -519,39 +580,34 @@ async fn enqueue_verification_email(state: &AppState, email: &str, token: &str) 
 
 // ───────────────────────────── UserAdminService ─────────────────────────────
 
-fn list_item(row: ListRow) -> AppResult<Value> {
-    Ok(json!({
-        "id": row.id,
-        "email": row.email,
-        "name": row.name,
-        "affiliation": Affiliation::from_db(&row.affiliation)?.as_str(),
-        "role": UserRole::from_db(i64::from(row.role))?.value(),
-        "is_active": row.is_active,
-        "email_verified": row.email_verified_at.is_some(),
-        "created_at": fmt(row.created_at),
-    }))
+fn list_item(row: ListRow) -> AppResult<ListItem> {
+    Ok(ListItem {
+        id: row.id,
+        affiliation: Affiliation::from_db(&row.affiliation)?.as_str(),
+        role: UserRole::from_db(i64::from(row.role))?.value(),
+        email: row.email,
+        name: row.name,
+        is_active: row.is_active,
+        email_verified: row.email_verified_at.is_some(),
+        created_at: row.created_at,
+    })
 }
 
-/// AdminUserView::toArray
-fn manage_view(row: ManageRow) -> AppResult<(Affiliation, Value)> {
-    let affiliation = Affiliation::from_db(&row.affiliation)?;
-    Ok((
-        affiliation,
-        json!({
-            "id": row.id,
-            "email": row.email,
-            "name": row.name,
-            "affiliation": affiliation.as_str(),
-            "role": UserRole::from_db(i64::from(row.role))?.value(),
-            "is_active": row.is_active,
-            "contact": nullable_string(row.contact),
-            "company": nullable_string(row.company),
-            "profile": profile_value(row.profile),
-            "email_verified": row.email_verified_at.is_some(),
-            "last_login_at": row.last_login_at.map(fmt),
-            "created_at": fmt(row.created_at),
-        }),
-    ))
+fn manage_view(row: ManageRow) -> AppResult<ManageView> {
+    Ok(ManageView {
+        id: row.id,
+        affiliation: Affiliation::from_db(&row.affiliation)?.as_str(),
+        role: UserRole::from_db(i64::from(row.role))?.value(),
+        email: row.email,
+        name: row.name,
+        is_active: row.is_active,
+        contact: nullable_string(row.contact),
+        company: nullable_string(row.company),
+        profile: profile_value(row.profile),
+        email_verified: row.email_verified_at.is_some(),
+        last_login_at: row.last_login_at,
+        created_at: row.created_at,
+    })
 }
 
 async fn require_active_operator(state: &AppState, operator_id: i64) -> AppResult<User> {
@@ -567,28 +623,61 @@ async fn require_active_operator(state: &AppState, operator_id: i64) -> AppResul
     Ok(operator)
 }
 
-pub async fn list_users(
+/// 목록·건수 쿼리 — 서로 독립이므로 풀의 두 연결로 동시에 보낸다
+async fn list_page(
     state: &AppState,
     query: &UserListQuery,
-    operator_id: i64,
-) -> AppResult<(Vec<Value>, i64)> {
-    let operator = require_active_operator(state, operator_id).await?;
+    affiliation: Affiliation,
+) -> AppResult<(Vec<ListRow>, i64)> {
     let filter = ListFilter {
-        affiliation: operator.affiliation.as_str(),
+        affiliation: affiliation.as_str(),
         role: query.role.map(UserRole::value),
         is_active: query.is_active,
         search: query.search.as_deref(),
     };
-    let rows = repo::paginate_by_affiliation(
-        &state.db,
-        &filter,
-        query.sort_column,
-        query.sort_direction,
-        query.per_page,
-        query.offset(),
+    tokio::try_join!(
+        repo::paginate_by_affiliation(
+            &state.db,
+            &filter,
+            query.sort_column,
+            query.sort_direction,
+            query.per_page,
+            query.offset(),
+        ),
+        repo::count_by_affiliation(&state.db, &filter),
     )
-    .await?;
-    let total = repo::count_by_affiliation(&state.db, &filter).await?;
+}
+
+/// 운영자 확인 + 목록 조회.
+///
+/// 토큰에 소속 힌트가 있으면 운영자 확인과 목록 조회를 동시에 시작해 DB 왕복 1회를 줄인다.
+/// 응답은 순차 실행과 같다 — 운영자 확인 결과(없음·비활성 → 오류)를 먼저 판정하고,
+/// 힌트가 DB 의 소속과 다르면 미리 조회한 결과를 버리고 DB 소속으로 다시 조회한다.
+/// 조회는 읽기 전용이라 버려지는 결과에 부작용이 없다.
+pub async fn list_users(
+    state: &AppState,
+    query: &UserListQuery,
+    operator_id: i64,
+    affiliation_hint: Option<Affiliation>,
+) -> AppResult<(Vec<ListItem>, i64)> {
+    let (rows, total) = match affiliation_hint {
+        Some(hint) => {
+            let (operator, page) = tokio::join!(
+                require_active_operator(state, operator_id),
+                list_page(state, query, hint),
+            );
+            let operator = operator?;
+            if operator.affiliation == hint {
+                page?
+            } else {
+                list_page(state, query, operator.affiliation).await?
+            }
+        }
+        None => {
+            let operator = require_active_operator(state, operator_id).await?;
+            list_page(state, query, operator.affiliation).await?
+        }
+    };
     let items = rows
         .into_iter()
         .map(list_item)
@@ -596,12 +685,33 @@ pub async fn list_users(
     Ok((items, total))
 }
 
-pub async fn get_user(state: &AppState, target_id: i64, operator_id: i64) -> AppResult<Value> {
-    let operator = require_active_operator(state, operator_id).await?;
-    let row = repo::find_manageable_by_id(&state.db, target_id, operator.affiliation.as_str())
-        .await?
-        .ok_or_else(|| AppError::NotFound("회원을 찾을 수 없습니다.".into()))?;
-    Ok(manage_view(row)?.1)
+/// 운영자 확인 + 회원 상세 조회 — `list_users` 와 같은 방식으로 두 조회를 동시에 보낸다
+pub async fn get_user(
+    state: &AppState,
+    target_id: i64,
+    operator_id: i64,
+    affiliation_hint: Option<Affiliation>,
+) -> AppResult<ManageView> {
+    let row = match affiliation_hint {
+        Some(hint) => {
+            let (operator, row) = tokio::join!(
+                require_active_operator(state, operator_id),
+                repo::find_manageable_by_id(&state.db, target_id, hint.as_str()),
+            );
+            let operator = operator?;
+            if operator.affiliation == hint {
+                row?
+            } else {
+                repo::find_manageable_by_id(&state.db, target_id, operator.affiliation.as_str())
+                    .await?
+            }
+        }
+        None => {
+            let operator = require_active_operator(state, operator_id).await?;
+            repo::find_manageable_by_id(&state.db, target_id, operator.affiliation.as_str()).await?
+        }
+    };
+    manage_view(row.ok_or_else(|| AppError::NotFound("회원을 찾을 수 없습니다.".into()))?)
 }
 
 pub async fn update_user(
@@ -614,7 +724,7 @@ pub async fn update_user(
     let row = repo::find_manageable_by_id(&state.db, target_id, operator.affiliation.as_str())
         .await?
         .ok_or_else(|| AppError::NotFound("회원을 찾을 수 없습니다.".into()))?;
-    let (target_affiliation, _) = manage_view(row)?;
+    let target_affiliation = Affiliation::from_db(&row.affiliation)?;
     if target_id == operator_id {
         if req.common.has("role") {
             return Err(AppError::Forbidden(
@@ -645,12 +755,12 @@ pub async fn record_log(state: &AppState, req: &LogRequest) -> AppResult<()> {
 }
 
 /// 목록 응답 meta (페이지네이션 4필드)
-pub fn pagination_meta(query: &UserListQuery, total: i64) -> Map<String, Value> {
+pub fn pagination_meta(query: &UserListQuery, total: i64) -> PageMeta {
     let last_page = ((total as f64) / (query.per_page as f64)).ceil().max(1.0) as i64;
-    let mut meta = Map::new();
-    meta.insert("page".into(), json!(query.page));
-    meta.insert("per_page".into(), json!(query.per_page));
-    meta.insert("total".into(), json!(total));
-    meta.insert("last_page".into(), json!(last_page));
-    meta
+    PageMeta {
+        page: query.page,
+        per_page: query.per_page,
+        total,
+        last_page,
+    }
 }

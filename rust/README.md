@@ -136,12 +136,13 @@ Rust 쪽에서만 가능한 방식으로 손봤다. 로컬 측정(같은 MySQL·
 2. `APP_TIMEZONE` 을 운영 PHP `date.timezone` 과 맞춘다.
 3. Apache 가상호스트에서 `ProxyPass / http://127.0.0.1:8306/` + `ProxyPreserveHost On` 으로 전환. 롤백은 프록시 설정만 되돌리면 된다.
 4. 큐 워커(`mail:work`, `log:work`, `security:scan`, 리포트)·마이그레이션(`phinx`)·`operator:create` 는 계속 PHP CLI 를 사용한다 — 이 포팅은 HTTP API 만 대상이다.
-5. 프록시 뒤에서는 클라이언트 IP 가 프록시 주소가 된다(PHP 도 REMOTE_ADDR 만 신뢰하므로 동일 정책). 레이트 리밋 키가 프록시 IP 로 모이지 않게 하려면 별도 결정이 필요하다.
+5. 프록시 뒤에서는 소켓 상대가 루프백이므로, Rust 는 상대가 루프백일 때만 `X-Forwarded-For` 의 **마지막 값**을 클라이언트 IP 로 쓴다(Apache 가 실제 접속 IP 를 끝에 덧붙인다). 레이트 리밋 키와 로그인 이벤트 IP 가 같은 규칙을 따른다(`http.rs` `resolve_client_ip`). 루프백이 아닌 상대는 PHP 처럼 소켓 주소만 쓴다.
 
 ## 알려진 차이·제약
 
 | 항목 | 내용 |
 |------|------|
+| 클라이언트 IP | PHP 는 `REMOTE_ADDR` 만 쓴다. Rust 는 루프백 상대에 한해 `X-Forwarded-For` 마지막 값을 쓴다 — 프록시 없이 직접 붙는 동등성 검사에서는 결과가 같다 |
 | 레이트 리밋 상태 | 알고리즘은 같지만 Redis 키(`ratelimit:rust:*`)가 별도라 전환 시점에 카운터가 이어지지 않는다(최대 1분 영향) |
 | multipart 본문 | PHP 는 `multipart/form-data` POST 를 `$_POST` 로 파싱하지만 Rust 는 빈 입력으로 처리 (현재 클라이언트는 JSON 만 사용) |
 | `logged_at` 검증 | Respect `DateTime()`=`strtotime()` 의 자연어 표현 전부는 재현하지 않고 ISO-8601·`Y-m-d H:i:s`·날짜·`@ts`·now/today 등 실사용 형식만 허용 |

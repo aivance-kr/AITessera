@@ -103,7 +103,7 @@ Since there is no framework, the structure is defined directly. Only the **front
 | `src/OpenApi/Schema/` | reusable OpenAPI schema components (docs-only classes) |
 | `config/` | container definitions · route definitions · config loading |
 | `migrations/` | phinx migrations |
-| `bin/console` | CLI entry point (`migrate`, `seed:run`, `mail:work`, `log:work`) |
+| `bin/console` | CLI entry point (`migrate`, `seed:run`, `mail:work`, `log:work`, `operator:create`, …) — `php bin/console list` |
 | `var/` | runtime output (logs, cache) — not tracked by git |
 | `docs/` | project documentation |
 | `legacy-source/` | legacy source kept for reference (do not add to git) |
@@ -352,13 +352,15 @@ from another ref would ship a binary that does not match the deployed source.
   sudo chmod -R 2775 <DEPLOY_PATH>/var   # setgid: new files inherit the www-data group
   ```
 
-### After deployment — default admin account (one-time)
+### After deployment — first operator account (one-time)
 
-Deployment includes only migrations; **seeders are not run automatically.** If there is no admin account, run this once on the server (safe to re-run).
+Deployment includes only migrations; **seeders are not run automatically.** If the server has no operator (`role=1`) account, create one with `operator:create`. The password is read from a hidden prompt (twice), never from an argument, so it stays out of shell history and the process list. Re-running with an existing email in the same affiliation is a no-op.
 
 ```bash
-cd <DEPLOY_PATH> && php bin/console seed:admin
+cd <DEPLOY_PATH> && php bin/console operator:create --email=<EMAIL> --name=<NAME> --affiliation=aivance --contact=<CONTACT>
 ```
+
+> Do **not** run `seed:run` in production: `TestUserSeeder` is for development only and creates `admin@aivance.test` with a password that is committed to the repository.
 
 ## Cloud/Infrastructure (Reference)
 

@@ -246,6 +246,36 @@ final readonly class UserService
             throw new ForbiddenException('본인 소속의 계정만 생성할 수 있습니다.');
         }
 
+        return $this->insertVerifiedAccount($request);
+    }
+
+    /**
+     * 최초 운영자 계정 생성 — 서버 콘솔(`bin/console operator:create`) 전용 신뢰 채널.
+     *
+     * 운영자가 아직 없는 환경에서 첫 운영자를 만들기 위한 경로라 생성자 검증이 없다.
+     * HTTP 로는 노출하지 않으며, 운영자(role=1)만 만들 수 있다.
+     *
+     * @return int 생성된 사용자 id
+     *
+     * @throws ValidationException      운영자가 아닌 구분을 요청한 경우
+     * @throws AlreadyExistsException   같은 소속에 이미 가입된 이메일인 경우
+     */
+    public function createInitialOperator(CreateOperatorRequest $request): int
+    {
+        if ($request->role !== UserRole::Operator) {
+            throw new ValidationException(['콘솔에서는 운영자(role=1) 계정만 생성할 수 있습니다.']);
+        }
+
+        return $this->insertVerifiedAccount($request);
+    }
+
+    /**
+     * 이메일 인증이 완료된 계정을 생성한다(중복 이메일 검사 포함).
+     *
+     * @throws AlreadyExistsException
+     */
+    private function insertVerifiedAccount(CreateOperatorRequest $request): int
+    {
         if ($this->users->emailExists($request->email, $request->affiliation->value)) {
             throw new AlreadyExistsException('이미 가입된 이메일입니다.');
         }

@@ -100,7 +100,7 @@ php bin/console <command>      # CLI 진입점 (마이그레이션·큐 컨슈�
 | `src/OpenApi/Schema/` | OpenAPI 재사용 스키마 컴포넌트(문서 전용 클래스) |
 | `config/` | 컨테이너 정의 · 라우트 정의 · 설정 로딩 |
 | `migrations/` | phinx 마이그레이션 |
-| `bin/console` | CLI 진입점 (`migrate`·`seed:run`·`mail:work`·`log:work`) |
+| `bin/console` | CLI 진입점 (`migrate`·`seed:run`·`mail:work`·`log:work`·`operator:create` 등) — `php bin/console list` |
 | `var/` | 런타임 산출물 (로그·캐시) — git 미추적 |
 | `docs/` | 프로젝트 문서 |
 | `legacy-source/` | 레거시소스 참고용. (깃 추가 금지) |
@@ -305,13 +305,15 @@ MySQL·Redis 컨테이너를 직접 기동하고 다음 순서로 검증한다.
   sudo chmod -R 2775 <DEPLOY_PATH>/var   # setgid: 새 파일이 www-data 그룹 상속
   ```
 
-### 배포 후 — 기본 관리자 계정 (최초 1회)
+### 배포 후 — 최초 운영자 계정 (1회)
 
-배포에는 마이그레이션만 포함되고 **시더는 자동 실행되지 않는다.** 관리자 계정이 없으면 서버에서 한 번 실행한다(재실행 안전).
+배포에는 마이그레이션만 포함되고 **시더는 자동 실행되지 않는다.** 서버에 운영자(`role=1`) 계정이 없으면 `operator:create` 로 만든다. 비밀번호는 인자가 아니라 화면에 표시되지 않는 프롬프트로 두 번 입력받아 셸 히스토리·프로세스 목록에 남지 않는다. 같은 소속에 같은 이메일이 이미 있으면 건너뛴다(재실행 안전).
 
 ```bash
-cd <DEPLOY_PATH> && php bin/console seed:admin
+cd <DEPLOY_PATH> && php bin/console operator:create --email=<이메일> --name=<이름> --affiliation=aivance --contact=<연락처>
 ```
+
+> 운영 서버에서 `seed:run` 을 실행하지 않는다. `TestUserSeeder` 는 개발용이며 비밀번호가 저장소에 공개된 `admin@aivance.test` 계정을 만든다.
 
 ## 클라우드·인프라 (참고)
 

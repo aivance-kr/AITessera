@@ -7,7 +7,6 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 
 use redis::aio::ConnectionManager;
-use serde_json::Value;
 
 use crate::error::{AppError, AppResult};
 
@@ -20,7 +19,12 @@ pub enum Queue {
 }
 
 impl Queue {
-    pub async fn push(&self, channel: &str, payload: &Value) -> AppResult<()> {
+    /// `payload` 는 PHP 정규화가 끝난 값이어야 한다 (`Value` 는 `PhpNormalized` 로 감싸 넘긴다)
+    pub async fn push<T: serde::Serialize + ?Sized>(
+        &self,
+        channel: &str,
+        payload: &T,
+    ) -> AppResult<()> {
         let body = php_json_encode(payload);
         match self {
             Self::Redis(conn) => {
@@ -44,19 +48,24 @@ impl Queue {
     }
 }
 
-/// PHP `json_encode($v)` 기본 플래그 재현 — 비ASCII 는 `\uXXXX`, `/` 는 `\/` 로 이스케이프
-pub fn php_json_encode(v: &Value) -> String {
-    let raw = serde_json::to_string(&crate::php::php_normalize(v.clone()))
-        .unwrap_or_else(|_| "null".into());
+/// PHP `json_encode($v)` 기본 플래그 재현 — 비ASCII 는 `\uXXXX`, `/` 는 `\/` 로 이스케이프.
+/// 원본을 복제하지 않고 직렬화하며, 이스케이프 결과는 한 버퍼에 바로 쓴다.
+pub fn php_json_encode<T: serde::Serialize + ?Sized>(v: &T) -> String {
+    use std::fmt::Write as _;
+    let raw = serde_json::to_string(v).unwrap_or_else(|_| "null".into());
+    // 순수 ASCII·슬래시 없음이면 그대로 반환 (추가 할당 없음)
+    if raw.bytes().all(|b| b.is_ascii() && b != b'/') {
+        return raw;
+    }
     let mut out = String::with_capacity(raw.len() + 16);
     for ch in raw.chars() {
         match ch {
             '/' => out.push_str("\\/"),
-            c if (c as u32) < 0x80 => out.push(c),
+            c if c.is_ascii() => out.push(c),
             c => {
                 let mut buf = [0u16; 2];
                 for unit in c.encode_utf16(&mut buf) {
-                    out.push_str(&format!("\\u{unit:04x}"));
+                    let _ = write!(out, "\\u{unit:04x}");
                 }
             }
         }
@@ -141,7 +150,12 @@ impl RateLimiter {
     }
 
     /// 토큰 1개 소비 — 거절이면 Some(Retry-After 초)
-    pub async fn consume(&self, id: &str, ip: &str, limit: i64) -> AppResult<Option<i64>> {
+    pub async fn consume(
+        &self,
+        id: &str,
+        ip: std::net::IpAddr,
+        limit: i64,
+    ) -> AppResult<Option<i64>> {
         let now = now_f64();
         let (accepted, wait) = match self {
             Self::Redis { conn, script } => {
@@ -218,11 +232,32 @@ fn now_f64() -> f64 {
 }
 
 // ───────────────────────────── 비밀번호 해시 ─────────────────────────────
+//
+// Argon2id(m=64MiB) 는 CPU·메모리 집약 연산이라 blocking 풀에서 실행하되, 동시 해시 수를 CPU 코어 수로
+// 제한한다 — 로그인 폭주 시 blocking 풀이 스레드를 수백 개 띄워 64MiB 씩 동시에 잡는(메모리 폭증)
+// 상황을 막는다. 코어 수 이상 동시에 돌려도 처리량은 늘지 않으므로 지연·처리량 손해는 없다.
+// (작업 메모리 풀 재사용도 시험했으나 지연 개선 없이 상주 메모리만 늘어 채택하지 않았다)
+
+/// 동시 해시 수 상한 = CPU 코어 수
+static HASH_PERMITS: std::sync::LazyLock<tokio::sync::Semaphore> = std::sync::LazyLock::new(|| {
+    let cores = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
+    tokio::sync::Semaphore::new(cores)
+});
+
+/// CPU 집약 해시 연산을 동시성 상한 안에서 blocking 풀로 보낸다
+async fn run_hashing<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> AppResult<R> {
+    let _permit = HASH_PERMITS
+        .acquire()
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))
+}
 
 /// `password_hash($pw, PASSWORD_ARGON2ID)` — PHP 기본 파라미터(m=65536, t=4, p=1)와 동일한 PHC 문자열.
-/// CPU 집약 연산이므로 blocking 풀에서 실행한다.
 pub async fn password_hash(password: String) -> AppResult<String> {
-    tokio::task::spawn_blocking(move || {
+    run_hashing(move || {
         use argon2::password_hash::{rand_core::OsRng, PasswordHasher, SaltString};
         let params = argon2::Params::new(65_536, 4, 1, Some(32))
             .map_err(|e| AppError::Internal(e.to_string()))?;
@@ -234,13 +269,12 @@ pub async fn password_hash(password: String) -> AppResult<String> {
             .map(|h| h.to_string())
             .map_err(|e| AppError::Internal(e.to_string()))
     })
-    .await
-    .map_err(|e| AppError::Internal(e.to_string()))?
+    .await?
 }
 
 /// `password_verify()` — argon2id/argon2i(PHC) 및 bcrypt(`$2y$`) 해시 지원
 pub async fn password_verify(password: String, hash: String) -> AppResult<bool> {
-    tokio::task::spawn_blocking(move || {
+    run_hashing(move || {
         if hash.starts_with("$argon2") {
             use argon2::password_hash::{PasswordHash, PasswordVerifier};
             return PasswordHash::new(&hash).ok().is_some_and(|parsed| {
@@ -255,7 +289,6 @@ pub async fn password_verify(password: String, hash: String) -> AppResult<bool> 
         false
     })
     .await
-    .map_err(|e| AppError::Internal(e.to_string()))
 }
 
 #[cfg(test)]
@@ -266,9 +299,22 @@ mod tests {
     #[test]
     fn php_json_encode_matches_php_defaults() {
         assert_eq!(
-            php_json_encode(&json!({"a": "한/b", "c": {}})),
+            php_json_encode(&crate::php::PhpNormalized(&json!({"a": "한/b", "c": {}}))),
             "{\"a\":\"\\ud55c\\/b\",\"c\":[]}"
         );
+    }
+
+    #[tokio::test]
+    async fn password_hash_roundtrip() {
+        let hash = password_hash("pw-한글".into()).await.unwrap();
+        assert!(hash.starts_with("$argon2id$v=19$m=65536,t=4,p=1$"));
+        assert!(password_verify("pw-한글".into(), hash.clone())
+            .await
+            .unwrap());
+        assert!(!password_verify("wrong".into(), hash).await.unwrap());
+        assert!(!password_verify("x".into(), "$argon2id$broken".into())
+            .await
+            .unwrap());
     }
 
     #[test]

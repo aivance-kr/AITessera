@@ -158,6 +158,33 @@ pub fn php_normalize(v: Value) -> Value {
     }
 }
 
+/// `php_normalize` 의 복제 없는 직렬화 버전 — 빈 객체 `{}` 를 `[]` 로 쓰면서 원본을 빌린 채 직렬화한다
+pub struct PhpNormalized<'a>(pub &'a Value);
+
+impl serde::Serialize for PhpNormalized<'_> {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::{SerializeMap, SerializeSeq};
+        match self.0 {
+            Value::Object(m) if m.is_empty() => s.serialize_seq(Some(0))?.end(),
+            Value::Object(m) => {
+                let mut map = s.serialize_map(Some(m.len()))?;
+                for (k, v) in m {
+                    map.serialize_entry(k, &PhpNormalized(v))?;
+                }
+                map.end()
+            }
+            Value::Array(a) => {
+                let mut seq = s.serialize_seq(Some(a.len()))?;
+                for v in a {
+                    seq.serialize_element(&PhpNormalized(v))?;
+                }
+                seq.end()
+            }
+            other => other.serialize(s),
+        }
+    }
+}
+
 /// PHP 배열로서 "비었는가" (`$profile === []`)
 pub fn is_empty_array(v: &Value) -> bool {
     match v {
@@ -169,7 +196,7 @@ pub fn is_empty_array(v: &Value) -> bool {
 
 /// PHP `json_encode($v, JSON_UNESCAPED_UNICODE)` 상당 — 슬래시는 `\/` 로 이스케이프
 pub fn json_encode_unescaped_unicode(v: &Value) -> String {
-    serde_json::to_string(&php_normalize(v.clone()))
+    serde_json::to_string(&PhpNormalized(v))
         .unwrap_or_else(|_| "null".into())
         .replace('/', "\\/")
 }

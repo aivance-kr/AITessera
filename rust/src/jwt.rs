@@ -14,12 +14,12 @@ use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use rsa::pkcs1::DecodeRsaPublicKey;
 use rsa::pkcs8::DecodePublicKey;
 use rsa::traits::PublicKeyParts;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 use crate::config::{Config, JwtAlgorithm};
-use crate::domain::UserRole;
+use crate::domain::{Affiliation, UserRole};
 use crate::error::AppError;
 
 pub struct JwtService {
@@ -43,11 +43,27 @@ struct AccessClaims<'a> {
     role: i64,
 }
 
+/// 검증에 쓰는 클레임만 — 값 형식(정수/실수/문자열)은 PHP 와 같은 규칙으로 직접 판정하므로 `Value` 로 받는다.
+/// `null` 클레임은 serde 가 None 으로 읽지만, iat·nbf·exp·sub·role 은 모두 필수라
+/// 이전 구현(null → 숫자 아님 → 거절)과 같은 INVALID_TOKEN 응답이 된다.
+#[derive(Deserialize)]
+struct VerifyClaims {
+    iat: Option<Value>,
+    nbf: Option<Value>,
+    exp: Option<Value>,
+    sub: Option<Value>,
+    role: Option<Value>,
+    aff: Option<Value>,
+}
+
 /// 검증 결과 — 요청 컨텍스트에 실리는 인증 정보
 #[derive(Debug, Clone, Copy)]
 pub struct AuthContext {
     pub user_id: i64,
     pub role: UserRole,
+    /// 토큰의 소속(aff) — 권한 판정에는 쓰지 않는다. DB 조회를 동시에 시작하기 위한 힌트로만 쓰고,
+    /// 결과는 항상 DB 의 소속과 대조한다 (`service::list_users` 등).
+    pub affiliation_hint: Option<Affiliation>,
 }
 
 impl JwtService {
@@ -147,25 +163,24 @@ impl JwtService {
             return Err(AppError::InvalidToken("토큰이 비어 있습니다.".into()));
         }
         // 파싱 + 서명(SignedWith) — 실패는 모두 INVALID_TOKEN
-        let data = jsonwebtoken::decode::<Value>(jwt, &self.decoding_key, &self.validation)
-            .map_err(|_| AppError::invalid_token())?;
-        let claims = data.claims;
-        let Value::Object(claims) = claims else {
-            return Err(AppError::invalid_token());
-        };
+        // 필요한 클레임만 담는 구조체로 바로 역직렬화한다 (나머지 클레임은 건너뜀 — 맵 할당 없음)
+        let claims =
+            jsonwebtoken::decode::<VerifyClaims>(jwt, &self.decoding_key, &self.validation)
+                .map_err(|_| AppError::invalid_token())?
+                .claims;
 
         // 시간 클레임은 lcobucci 파서처럼 숫자(정수/실수/숫자 문자열)여야 한다 — 아니면 파싱 실패
-        let time_claim = |name: &str| -> Result<Option<f64>, AppError> {
-            match claims.get(name) {
+        let time_claim = |v: &Option<Value>| -> Result<Option<f64>, AppError> {
+            match v {
                 None => Ok(None),
                 Some(v) => crate::php::numeric_f64(v)
                     .map(Some)
                     .ok_or_else(AppError::invalid_token),
             }
         };
-        let iat = time_claim("iat")?;
-        let nbf = time_claim("nbf")?;
-        let exp = time_claim("exp")?;
+        let iat = time_claim(&claims.iat)?;
+        let nbf = time_claim(&claims.nbf)?;
+        let exp = time_claim(&claims.exp)?;
 
         let now = now_f64();
         // 만료는 TOKEN_EXPIRED 로 구분 (lcobucci isExpired: now >= exp)
@@ -178,19 +193,29 @@ impl JwtService {
             _ => return Err(AppError::invalid_token()),
         }
 
-        let sub = claims.get("sub").filter(|v| crate::php::is_numeric(v));
+        let sub = claims.sub.as_ref().filter(|v| crate::php::is_numeric(v));
         let Some(user_id) = sub.and_then(crate::php::numeric_to_int) else {
             return Err(AppError::InvalidToken(
                 "토큰에 유효한 사용자 식별자가 없습니다.".into(),
             ));
         };
         let role = claims
-            .get("role")
+            .role
+            .as_ref()
             .filter(|v| crate::php::is_numeric(v))
             .and_then(crate::php::numeric_to_int)
             .and_then(UserRole::try_from_int)
             .ok_or_else(|| AppError::InvalidToken("토큰에 유효한 회원구분이 없습니다.".into()))?;
-        Ok(AuthContext { user_id, role })
+        let affiliation_hint = claims
+            .aff
+            .as_ref()
+            .and_then(Value::as_str)
+            .and_then(Affiliation::try_from_str);
+        Ok(AuthContext {
+            user_id,
+            role,
+            affiliation_hint,
+        })
     }
 }
 

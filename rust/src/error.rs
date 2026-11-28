@@ -3,7 +3,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use crate::response::json_response;
+pub use crate::response::error_response;
 
 /// PHP 의 예외(throw) 경로로 만들어진 응답 표시.
 /// PHP 에서는 예외가 CorsMiddleware 를 그대로 통과해 ErrorHandler 에서 응답이 만들어지므로
@@ -95,29 +95,31 @@ pub const INTERNAL_MESSAGE: &str = "서버 내부 오류가 발생했습니다."
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, code) = self.status_and_code();
-        let message = match &self {
+        // 메시지는 variant 가 가진 문자열을 그대로 빌린다 (Display 경유 재할당 없음)
+        let message: &str = match &self {
             Self::Internal(msg) => {
                 tracing::error!(error = %msg, "unhandled error");
                 if *APP_DEBUG.get().unwrap_or(&false) {
-                    msg.clone()
+                    msg
                 } else {
-                    INTERNAL_MESSAGE.to_string()
+                    INTERNAL_MESSAGE
                 }
             }
-            other => other.to_string(),
+            Self::Validation(m)
+            | Self::AlreadyExists(m)
+            | Self::EmailNotVerified(m)
+            | Self::Forbidden(m)
+            | Self::InvalidCredentials(m)
+            | Self::InvalidToken(m)
+            | Self::MethodNotAllowed(m)
+            | Self::NotFound(m)
+            | Self::TokenExpired(m)
+            | Self::Unauthorized(m) => m,
         };
-        let mut res = error_response(code, &message, status);
+        let mut res = error_response(code, message, status);
         res.extensions_mut().insert(ThrownError);
         res
     }
-}
-
-/// 표준 에러 본문 — `{"status":"error","code":...,"message":...}`
-pub fn error_response(code: &str, message: &str, status: StatusCode) -> Response {
-    json_response(
-        &serde_json::json!({ "status": "error", "code": code, "message": message }),
-        status,
-    )
 }
 
 impl From<sqlx::Error> for AppError {
